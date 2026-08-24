@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -355,7 +356,7 @@ def test_host_health_reports_ok_warning_problem_and_unknown() -> None:
     critical = _health_payload("online", alert_level="critical", alert_resource_id="res-vm")
     problem = _host_health(critical, "host-1", entry)
     assert problem.native_value == "problem"
-    assert problem.extra_state_attributes["alerts"][0]["level"] == "critical"
+    assert problem.extra_state_attributes["alerts"][0].startswith("kritisch: ")
 
     missing = _host_health({"resources": [], "activeAlerts": []}, "host-1", entry)
     assert missing.available is True
@@ -517,17 +518,7 @@ def test_host_health_and_counts_use_transitive_host_parent() -> None:
     )
 
     assert health.native_value == "problem"
-    assert health.extra_state_attributes["alerts"] == [
-        {
-            "resource_name": None,
-            "type": "resource",
-            "message": None,
-            "level": "critical",
-            "since": None,
-            "acknowledged": False,
-            "host": "host-1",
-        }
-    ]
+    assert health.extra_state_attributes["alerts"] == ["kritisch: host-1 · resource"]
     assert containers_running.native_value == 1
     assert guests_stopped.native_value == 1
 
@@ -723,17 +714,7 @@ def test_docker_formatted_alert_maps_to_container_and_host_health() -> None:
     assert data.alerts[0].resolved_resource_id == "app-container:containerhash"
     assert data.alerts[0].resolved_host_id == "host-1"
     assert health.native_value == "problem"
-    assert health.extra_state_attributes["alerts"] == [
-        {
-            "resource_name": "container-a",
-            "type": "docker-container-health",
-            "message": "Container ist ungesund",
-            "level": "critical",
-            "since": datetime(2026, 8, 24, 10, 0, tzinfo=UTC),
-            "acknowledged": False,
-            "host": "host-a",
-        }
-    ]
+    assert health.extra_state_attributes["alerts"] == ["kritisch: host-a · container-a · ungesund"]
 
 
 def test_unknown_alert_affects_overall_but_not_host_health() -> None:
@@ -835,15 +816,10 @@ def test_alert_counter_attributes_are_limited_and_readable() -> None:
     assert attrs["truncated"] == 2
     assert attrs["unassigned"] == 0
     assert len(attrs["alerts"]) == 25
-    assert attrs["alerts"][0] == {
-        "resource_name": "container-a",
-        "type": "docker-container-health",
-        "message": "Warnung 0",
-        "level": "warning",
-        "since": datetime(2026, 8, 24, 10, 0, tzinfo=UTC),
-        "acknowledged": False,
-        "host": "host-a",
-    }
+    # Kurze Zeichenkette statt Dictionary: native Clients rendern Attributlisten
+    # flach, verschachtelte Strukturen werden dort zur Textwand.
+    assert attrs["alerts"][0] == "host-a · container-a · ungesund"
+    assert all(isinstance(line, str) for line in attrs["alerts"])
     assert "id" not in attrs["alerts"][0]
     assert "resource_id" not in attrs["alerts"][0]
 
@@ -1004,10 +980,15 @@ def test_german_translations_use_requested_labels_and_enum_states() -> None:
     }
 
 
-def test_manifest_version_is_050() -> None:
+def test_manifest_version_is_semver() -> None:
+    """Version muss semver sein — HACS sortiert Releases danach.
+
+    Bewusst kein fester Wert: ein an die Version genagelter Test schlägt bei
+    jedem Release fehl und sagt nichts über die Korrektheit aus.
+    """
     manifest = json.loads((Path(__file__).parents[1] / "custom_components/pulse/manifest.json").read_text())
 
-    assert manifest["version"] == "0.5.0"
+    assert re.fullmatch(r"\d+\.\d+\.\d+", manifest["version"]), manifest["version"]
 
 
 def test_guest_without_disk_block_reports_unknown_disk(fixture_state: dict) -> None:

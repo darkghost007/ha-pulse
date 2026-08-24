@@ -52,3 +52,15 @@ OFFLINE_STATES: Final = frozenset({"offline", "unreachable", "missing", "error",
 PLATFORMS: Final = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
 ATTRIBUTION: Final = "Data provided by Pulse"
+
+# Kurzbezeichnungen für Alarmtypen. Die rohen Pulse-Typen sind maschinenlesbar,
+# aber in einer Geräteübersicht schwer zu erfassen. Unbekannte Typen werden
+# unverändert durchgereicht.
+ALERT_TYPE_LABELS: dict[str, str] = {
+    "docker-container-health": "ungesund",
+    "docker-container-state": "gestoppt",
+    "docker-container-oom-kill": "Speicherüberlauf",
+    "storage-topology": "Speicher-Topologie",
+    "node-offline": "offline",
+    "guest-offline": "offline",
+}

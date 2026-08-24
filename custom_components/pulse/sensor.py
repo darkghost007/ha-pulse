@@ -20,6 +20,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
+    ALERT_TYPE_LABELS,
     CONF_ALIAS_MAP,
     CONF_CRITICAL_HOSTS,
     CONF_CRITICAL_HOSTS_MODE,
@@ -854,19 +855,24 @@ def _alert_list_attributes(data: PulseData, alerts: list[PulseAlert]) -> dict[st
     }
 
 
-def _alert_attribute(data: PulseData, alert: PulseAlert) -> dict[str, Any]:
-    output: dict[str, Any] = {
-        "resource_name": alert.resource_name,
-        "type": alert.type,
-        "message": alert.message,
-        "level": alert.level,
-        "since": alert.since,
-        "acknowledged": alert.acknowledged,
-    }
+def _alert_attribute(data: PulseData, alert: PulseAlert) -> str:
+    """Ein Alarm als kurze, lesbare Zeile.
+
+    Bewusst eine Zeichenkette statt eines Dictionaries: native Clients wie Vulpo
+    rendern Attributlisten flach als `Key: Wert, Key: Wert, ...` ohne
+    Zeilenumbruch. Bei mehreren Alarmen wird daraus eine unlesbare Textwand.
+    """
+    parts: list[str] = []
     if alert.resolved_host_id is not None:
         host = data.hosts.get(alert.resolved_host_id)
-        output["host"] = host.name if host is not None else alert.resolved_host_id
-    return output
+        parts.append(host.name if host is not None else alert.resolved_host_id)
+    if alert.resource_name:
+        parts.append(alert.resource_name)
+    parts.append(ALERT_TYPE_LABELS.get(alert.type, alert.type))
+    line = " · ".join(parts)
+    # Host-Sensoren mischen Warnungen und kritische Alarme in einer Liste —
+    # ohne Kennzeichnung wäre nicht erkennbar, was davon dringend ist.
+    return f"kritisch: {line}" if alert.level == "critical" else line
 
 
 def _host_alerts(data: PulseData, host_id: str) -> list[PulseAlert]:
