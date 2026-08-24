@@ -653,14 +653,7 @@ def test_pulse_infrastructure_health_flows_into_overall_status() -> None:
 
     assert overall.native_value == "warning"
     assert overall.extra_state_attributes["infrastructure_issues"] == [
-        {
-            "name": "infra-warn",
-            "status": "degraded",
-            "last_seen": "2026-08-24T10:00:00Z",
-            "version": "6.3.0",
-            "problem": False,
-            "source": "connectedInfrastructure",
-        }
+        "infra-warn · beeinträchtigt"
     ]
 
     data = normalize_state(
@@ -676,7 +669,7 @@ def test_pulse_infrastructure_health_flows_into_overall_status() -> None:
         next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "overall_status"),
     )
     assert overall.native_value == "problem"
-    assert overall.extra_state_attributes["infrastructure_issues"][0]["source"] == "connectionHealth"
+    assert overall.extra_state_attributes["infrastructure_issues"] == ["Problem: infra-down · offline"]
 
 
 def test_docker_formatted_alert_maps_to_container_and_host_health() -> None:
@@ -791,9 +784,12 @@ def test_alert_counter_attributes_are_limited_and_readable() -> None:
 
     attrs = warnings.extra_state_attributes
     assert warnings.native_value == 27
-    assert attrs["truncated"] == 2
+    # Die Liste wird bewusst kurz gehalten: native Clients hängen alle Einträge
+    # zu einer einzigen Zeile aneinander.
+    assert attrs["truncated"] == 27 - sensor.ALERT_ATTRIBUTE_LIMIT
     assert attrs["unassigned"] == 0
-    assert len(attrs["alerts"]) == 25
+    assert len(attrs["alerts"]) == sensor.ALERT_ATTRIBUTE_LIMIT
+    assert sensor.ALERT_ATTRIBUTE_LIMIT <= 10
     # Kurze Zeichenkette statt Dictionary: native Clients rendern Attributlisten
     # flach, verschachtelte Strukturen werden dort zur Textwand.
     assert attrs["alerts"][0] == "host-a · container-a · ungesund"
@@ -1371,7 +1367,21 @@ def test_rendered_list_attributes_contain_only_strings(fixture_state: dict) -> N
     Native Clients wie Vulpo rendern Attributlisten flach aneinandergehängt;
     verschachtelte Strukturen werden dort zu einer unlesbaren Textwand.
     """
-    data = normalize_state(fixture_state)
+    # Die Fixture enthält keine Verbindungsdaten — ohne sie bliebe
+    # infrastructure_issues leer und der Test würde die Lücke nicht sehen.
+    payload = {
+        **fixture_state,
+        "connectedInfrastructure": [
+            {
+                "name": "infra-1",
+                "healthStatus": "degraded",
+                "lastSeen": 1787611413668,
+                "version": "v6.3.1",
+            }
+        ],
+    }
+    data = normalize_state(payload)
+    assert data.infrastructure_issues, "Testaufbau liefert keine Infrastruktur-Einträge"
     entry = _entry(options={CONF_KNOWN_HOSTS: list(data.hosts)})
     coordinator = _coordinator(entry, data)
 

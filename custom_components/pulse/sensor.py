@@ -52,7 +52,7 @@ SummaryValueFn = Callable[[PulseData], Any]
 OVERALL_STATUS_OK = "ok"
 OVERALL_STATUS_WARNING = "warning"
 OVERALL_STATUS_PROBLEM = "problem"
-ALERT_ATTRIBUTE_LIMIT = 25
+ALERT_ATTRIBUTE_LIMIT = 8
 OPTIONAL_HOST_VALUE_KEYS = {
     "network_rx_rate",
     "network_tx_rate",
@@ -547,14 +547,19 @@ class PulseSummarySensor(PulseEntity, SensorEntity):
             return None
         alert_attrs = _alert_list_attributes(
             data,
-            [alert for alert in data.alerts if alert.level in {"warning", "critical"}],
+            sorted(
+                (alert for alert in data.alerts if alert.level in {"warning", "critical"}),
+                # Kritische zuerst: die Liste wird gekappt, und dann darf nicht
+                # das Dringendste wegfallen.
+                key=lambda alert: 0 if alert.level == "critical" else 1,
+            ),
         )
         return {
             "triggering_hosts": _triggering_hosts(data, self._entry),
             "triggering_alerts": alert_attrs["alerts"],
             "triggering_alerts_truncated": alert_attrs["truncated"],
             "unassigned_alerts": alert_attrs["unassigned"],
-            "infrastructure_issues": data.infrastructure_issues,
+            "infrastructure_issues": _infrastructure_issue_labels(data),
         }
 
 
@@ -779,6 +784,21 @@ def _host_health_attributes(data: PulseData, host_id: str) -> dict[str, Any]:
         "unassigned": alert_attrs["unassigned"],
         "triggering_resources": triggering_resources,
     }
+
+
+def _infrastructure_issue_labels(data: PulseData) -> list[str]:
+    """Verbindungsprobleme als kurze Zeilen.
+
+    Die interne Struktur bleibt unangetastet — die Statuslogik wertet dort
+    `problem` aus. Formatiert wird erst an der Attributgrenze.
+    """
+    output: list[str] = []
+    for issue in data.infrastructure_issues:
+        status = issue.get("status") or "unknown"
+        label = STATUS_LABELS.get(status, status)
+        marker = "Problem: " if issue.get("problem") else ""
+        output.append(f"{marker}{issue.get('name') or 'unbekannt'} · {label}")
+    return output
 
 
 def _resource_attribute(resource: PulseResource, reason: str) -> str:
