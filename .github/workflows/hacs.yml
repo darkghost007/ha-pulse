@@ -1,0 +1,16 @@
+name: hacs
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hacs/action@main
+        with:
+          category: integration

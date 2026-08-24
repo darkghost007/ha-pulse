@@ -1,0 +1,558 @@
+{
+  "activeAlerts": [
+    {
+      "acknowledged": false,
+      "id": "alert-1",
+      "level": "critical",
+      "resourceId": "res-17",
+      "resourceName": "host-17",
+      "type": "docker-container-health"
+    },
+    {
+      "acknowledged": false,
+      "id": "alert-2",
+      "level": "critical",
+      "resourceId": "res-17",
+      "resourceName": "host-17",
+      "type": "docker-container-oom-kill"
+    },
+    {
+      "acknowledged": false,
+      "id": "alert-3",
+      "level": "critical",
+      "resourceId": "res-18",
+      "resourceName": "host-18",
+      "type": "docker-container-health"
+    },
+    {
+      "acknowledged": false,
+      "id": "alert-4",
+      "level": "critical",
+      "resourceId": "res-19",
+      "resourceName": "host-19",
+      "type": "docker-container-health"
+    }
+  ],
+  "lastUpdate": 1787520028513,
+  "resources": [
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-1",
+          "canon-2",
+          "canon-3",
+          "canon-4",
+          "canon-5",
+          "canon-6"
+        ],
+        "primaryId": "canon-1"
+      },
+      "displayName": "host-2",
+      "id": "res-2",
+      "name": "host-2",
+      "parentId": "res-1",
+      "parentName": "host-1",
+      "platformType": "docker",
+      "sourceType": "agent",
+      "sources": [
+        "docker"
+      ],
+      "status": "online",
+      "technology": "docker",
+      "type": "docker-volume"
+    },
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-1",
+          "canon-2",
+          "canon-3",
+          "canon-7",
+          "canon-8",
+          "canon-9"
+        ],
+        "primaryId": "canon-1"
+      },
+      "displayName": "host-3",
+      "id": "res-3",
+      "name": "host-3",
+      "parentId": "res-1",
+      "parentName": "host-1",
+      "platformType": "docker",
+      "sourceType": "agent",
+      "sources": [
+        "docker"
+      ],
+      "status": "online",
+      "technology": "docker",
+      "type": "docker-image"
+    },
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-10",
+          "canon-11",
+          "canon-2",
+          "canon-3",
+          "canon-12",
+          "canon-13"
+        ],
+        "primaryId": "canon-10"
+      },
+      "cpu": {
+        "current": 0.0009985172632916753
+      },
+      "displayName": "host-4",
+      "id": "res-4",
+      "memory": {
+        "current": 0.14403726240501172,
+        "free": 67046092800,
+        "total": 67142803456,
+        "used": 96710656
+      },
+      "name": "host-4",
+      "parentId": "res-1",
+      "parentName": "host-1",
+      "platformType": "docker",
+      "sourceType": "agent",
+      "sources": [
+        "docker"
+      ],
+      "status": "running",
+      "technology": "docker",
+      "type": "app-container",
+      "uptime": 3070
+    },
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-14",
+          "canon-15",
+          "canon-2",
+          "canon-3",
+          "canon-16",
+          "canon-17"
+        ],
+        "primaryId": "canon-14"
+      },
+      "cpu": {
+        "current": 0.0003088459583121505
+      },
+      "displayName": "host-5",
+      "id": "res-5",
+      "memory": {
+        "current": 1.08184814453125,
+        "free": 1062125568,
+        "total": 1073741824,
+        "used": 11616256
+      },
+      "name": "host-5",
+      "parentId": "res-1",
+      "parentName": "host-1",
+      "platformType": "docker",
+      "sourceType": "agent",
+      "sources": [
+        "docker"
+      ],
+      "status": "running",
+      "technology": "docker",
+      "type": "app-container",
+      "uptime": 3066
+    },
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-18",
+          "canon-19",
+          "canon-2",
+          "canon-3",
+          "canon-20",
+          "canon-21"
+        ],
+        "primaryId": "canon-18"
+      },
+      "cpu": {
+        "current": 0
+      },
+      "displayName": "host-6",
+      "id": "res-6",
+      "name": "host-6",
+      "parentId": "res-1",
+      "parentName": "host-1",
+      "platformType": "docker",
+      "sourceType": "agent",
+      "sources": [
+        "docker"
+      ],
+      "status": "stopped",
+      "technology": "docker",
+      "type": "app-container"
+    },
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-1",
+          "canon-2",
+          "canon-3",
+          "canon-22",
+          "canon-23",
+          "canon-24"
+        ],
+        "primaryId": "canon-1"
+      },
+      "displayName": "host-7",
+      "id": "res-7",
+      "name": "host-7",
+      "parentId": "res-1",
+      "parentName": "host-1",
+      "platformType": "docker",
+      "sourceType": "agent",
+      "sources": [
+        "docker"
+      ],
+      "status": "online",
+      "technology": "docker",
+      "type": "docker-network"
+    },
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-25",
+          "canon-26",
+          "canon-27",
+          "canon-3",
+          "canon-28",
+          "canon-29",
+          "canon-30"
+        ],
+        "primaryId": "canon-25"
+      },
+      "childCount": 1,
+      "disk": {
+        "current": 50.002488662968794,
+        "free": 713734406144,
+        "total": 1427539865600,
+        "used": 713805459456
+      },
+      "displayName": "host-8",
+      "id": "res-8",
+      "name": "host-8",
+      "parentId": "res-1",
+      "parentName": "host-1",
+      "platformType": "agent",
+      "sourceType": "agent",
+      "sources": [
+        "agent"
+      ],
+      "status": "online",
+      "technology": "unraid",
+      "type": "storage"
+    },
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-31",
+          "canon-32",
+          "canon-33",
+          "canon-3",
+          "canon-34",
+          "canon-35",
+          "canon-36"
+        ],
+        "primaryId": "canon-31"
+      },
+      "childCount": 1,
+      "disk": {
+        "current": 0,
+        "free": 1000204886016,
+        "total": 1000204886016,
+        "used": 0
+      },
+      "displayName": "host-9",
+      "id": "res-9",
+      "name": "host-9",
+      "parentId": "res-1",
+      "parentName": "host-1",
+      "platformType": "agent",
+      "sourceType": "agent",
+      "sources": [
+        "agent"
+      ],
+      "status": "online",
+      "technology": "unraid",
+      "type": "storage"
+    },
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-37",
+          "canon-38",
+          "canon-39",
+          "canon-3",
+          "canon-40"
+        ],
+        "primaryId": "canon-37"
+      },
+      "displayName": "host-10",
+      "id": "res-10",
+      "name": "host-10",
+      "parentId": "res-1",
+      "parentName": "host-1",
+      "platformType": "agent",
+      "sourceType": "agent",
+      "sources": [
+        "agent"
+      ],
+      "status": "online",
+      "type": "physical_disk"
+    },
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-41",
+          "canon-42",
+          "canon-43",
+          "canon-3",
+          "canon-44"
+        ],
+        "primaryId": "canon-41"
+      },
+      "displayName": "host-11",
+      "id": "res-11",
+      "name": "host-11",
+      "parentId": "res-1",
+      "parentName": "host-1",
+      "platformType": "agent",
+      "sourceType": "agent",
+      "sources": [
+        "agent"
+      ],
+      "status": "unknown",
+      "type": "physical_disk"
+    },
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-45",
+          "canon-46",
+          "canon-47",
+          "canon-48"
+        ],
+        "primaryId": "canon-45"
+      },
+      "cpu": {
+        "current": 0.9063400782284138
+      },
+      "displayName": "host-12",
+      "id": "res-12",
+      "memory": {
+        "current": 100,
+        "free": 0,
+        "total": 6442450944,
+        "used": 6442450944
+      },
+      "name": "host-12",
+      "parentId": "res-1",
+      "parentName": "host-1",
+      "platformType": "proxmox-pve",
+      "sourceType": "agent",
+      "sources": [
+        "agent"
+      ],
+      "status": "running",
+      "technology": "libvirt",
+      "type": "vm"
+    },
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-49",
+          "canon-50",
+          "canon-51",
+          "canon-52"
+        ],
+        "primaryId": "canon-49"
+      },
+      "cpu": {
+        "current": 0.5251312826316541
+      },
+      "disk": {
+        "current": 66.88422147678146,
+        "free": 11365609472,
+        "total": 31079723008,
+        "used": 19714113536
+      },
+      "displayName": "host-13",
+      "id": "res-13",
+      "memory": {
+        "current": 23.71579094209684,
+        "free": 1568259216,
+        "total": 2055811072,
+        "used": 487551856
+      },
+      "name": "host-13",
+      "platformType": "agent",
+      "sourceType": "agent",
+      "sources": [
+        "agent"
+      ],
+      "status": "online",
+      "technology": "linux",
+      "type": "agent",
+      "uptime": 174900
+    },
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-53",
+          "canon-54",
+          "canon-55",
+          "canon-56"
+        ],
+        "primaryId": "canon-53"
+      },
+      "cpu": {
+        "current": 0.6652539347823918
+      },
+      "displayName": "host-14",
+      "id": "res-14",
+      "memory": {
+        "current": 100,
+        "free": 0,
+        "total": 2147483648,
+        "used": 2147483648
+      },
+      "name": "host-14",
+      "parentId": "res-1",
+      "parentName": "host-1",
+      "platformType": "proxmox-pve",
+      "sourceType": "agent",
+      "sources": [
+        "agent"
+      ],
+      "status": "running",
+      "technology": "libvirt",
+      "type": "vm"
+    },
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-57",
+          "canon-2",
+          "canon-3",
+          "canon-58"
+        ],
+        "primaryId": "canon-57"
+      },
+      "childCount": 519,
+      "cpu": {
+        "current": 18.57391009626319
+      },
+      "disk": {
+        "current": 6.981642360732936,
+        "free": 31133790208,
+        "total": 33470586880,
+        "used": 2336796672
+      },
+      "displayName": "host-1",
+      "id": "res-1",
+      "memory": {
+        "current": 57.1722316378341,
+        "free": 28755764336,
+        "total": 67142803456,
+        "used": 38387039120
+      },
+      "name": "host-1",
+      "platformType": "agent",
+      "sourceType": "hybrid",
+      "sources": [
+        "agent",
+        "docker"
+      ],
+      "status": "degraded",
+      "technology": "linux",
+      "temperature": 60,
+      "type": "agent",
+      "uptime": 175135
+    },
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-59",
+          "canon-60",
+          "canon-61",
+          "canon-62"
+        ],
+        "primaryId": "canon-59"
+      },
+      "childCount": 56,
+      "cpu": {
+        "current": 6.491525423855095
+      },
+      "disk": {
+        "current": 14.128295345442085,
+        "free": 70490390528,
+        "total": 82085269504,
+        "used": 11594878976
+      },
+      "displayName": "host-15",
+      "id": "res-15",
+      "memory": {
+        "current": 61.92984803025381,
+        "free": 734375936,
+        "total": 1929007104,
+        "used": 1194631168
+      },
+      "name": "host-15",
+      "platformType": "agent",
+      "sourceType": "hybrid",
+      "sources": [
+        "agent",
+        "docker"
+      ],
+      "status": "online",
+      "technology": "linux",
+      "type": "agent",
+      "uptime": 2601869
+    },
+    {
+      "canonicalIdentity": {
+        "aliases": [
+          "canon-63",
+          "canon-64",
+          "canon-65",
+          "canon-66"
+        ],
+        "primaryId": "canon-63"
+      },
+      "cpu": {
+        "current": 3.2356770833333335
+      },
+      "disk": {
+        "current": 23.554250936836546,
+        "free": 163434139648,
+        "total": 213791010816,
+        "used": 50356871168
+      },
+      "displayName": "host-16",
+      "id": "res-16",
+      "memory": {
+        "current": 59.74461291373839,
+        "free": 3455680512,
+        "total": 8584392704,
+        "used": 5128712192
+      },
+      "name": "host-16",
+      "platformType": "agent",
+      "sourceType": "agent",
+      "sources": [
+        "agent"
+      ],
+      "status": "online",
+      "technology": "windows",
+      "type": "agent",
+      "uptime": 174898
+    }
+  ],
+  "temperatureMonitoringEnabled": false
+}

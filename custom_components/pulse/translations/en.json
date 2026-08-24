@@ -1,0 +1,89 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect Pulse",
+        "description": "Connect a Pulse instance with an API token scoped to `monitoring:read`.",
+        "data": {
+          "host": "Pulse URL",
+          "api_token": "API token",
+          "verify_ssl": "Verify TLS certificate",
+          "scan_interval": "Scan interval"
+        }
+      },
+      "confirm_http": {
+        "title": "Confirm HTTP",
+        "description": "The Pulse URL uses unencrypted HTTP. The token and topology are transferred in clear text on the network.",
+        "data": {
+          "confirm_http": "Use HTTP anyway"
+        }
+      },
+      "confirm_insecure_tls": {
+        "title": "Confirm TLS verification",
+        "description": "TLS certificate verification is disabled. The connection can no longer be authenticated reliably.",
+        "data": {
+          "confirm_insecure_tls": "Disable TLS verification anyway"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate Pulse",
+        "data": {
+          "api_token": "API token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to Pulse.",
+      "invalid_auth": "The API token was rejected.",
+      "insufficient_scope": "The API token does not have the required `monitoring:read` scope.",
+      "invalid_url": "The URL must use http or https and must not contain user info, query, or fragment.",
+      "http_not_confirmed": "HTTP must be explicitly confirmed.",
+      "insecure_tls_not_confirmed": "Disabling TLS verification must be explicitly confirmed.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This Pulse instance is already configured.",
+      "reauth_successful": "Pulse was reauthenticated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Pulse options",
+        "data": {
+          "scan_interval": "Scan interval",
+          "include_guests": "Create entities for VMs",
+          "include_docker_containers": "Create entities for Docker containers",
+          "critical_hosts_mode": "Critical hosts",
+          "critical_hosts": "Selected critical hosts"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "active_alerts": {"name": "Active alerts"},
+      "containers_running": {"name": "Containers running"},
+      "containers_stopped": {"name": "Containers stopped"},
+      "cpu_usage": {"name": "CPU usage"},
+      "disk_usage": {"name": "Disk usage"},
+      "hosts_offline": {"name": "Hosts offline"},
+      "hosts_online": {"name": "Hosts online"},
+      "memory_usage": {"name": "Memory usage"},
+      "status": {"name": "Status"},
+      "storage_usage": {"name": "Storage usage"},
+      "temperature": {"name": "Temperature"},
+      "total": {"name": "Total"},
+      "uptime": {"name": "Uptime"},
+      "usage": {"name": "Usage"},
+      "used": {"name": "Used"},
+      "vms_running": {"name": "VMs running"},
+      "vms_stopped": {"name": "VMs stopped"}
+    },
+    "binary_sensor": {
+      "infrastructure_problem": {"name": "Infrastructure problem"},
+      "online": {"name": "Online"},
+      "running": {"name": "Running"}
+    }
+  }
+}

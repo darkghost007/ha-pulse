@@ -1,0 +1,14 @@
+name: hassfest
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: home-assistant/actions/hassfest@master

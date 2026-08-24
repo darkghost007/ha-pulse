@@ -1,0 +1,89 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Pulse verbinden",
+        "description": "Verbinde eine Pulse-Instanz mit einem API-Token mit Scope `monitoring:read`.",
+        "data": {
+          "host": "Pulse-URL",
+          "api_token": "API-Token",
+          "verify_ssl": "TLS-Zertifikat prüfen",
+          "scan_interval": "Abfrageintervall"
+        }
+      },
+      "confirm_http": {
+        "title": "HTTP bestätigen",
+        "description": "Die Pulse-URL nutzt unverschlüsseltes HTTP. Token und Topologie werden dabei im Klartext im Netzwerk übertragen.",
+        "data": {
+          "confirm_http": "HTTP trotzdem verwenden"
+        }
+      },
+      "confirm_insecure_tls": {
+        "title": "TLS-Prüfung bestätigen",
+        "description": "Die TLS-Zertifikatsprüfung ist deaktiviert. Die Verbindung kann dadurch nicht verlässlich authentifiziert werden.",
+        "data": {
+          "confirm_insecure_tls": "TLS-Prüfung trotzdem deaktivieren"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Pulse erneut authentifizieren",
+        "data": {
+          "api_token": "API-Token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zu Pulse fehlgeschlagen.",
+      "invalid_auth": "Der API-Token wurde abgelehnt.",
+      "insufficient_scope": "Der API-Token hat nicht den nötigen Scope `monitoring:read`.",
+      "invalid_url": "Die URL muss http oder https verwenden und darf keine Zugangsdaten, Query oder Fragment enthalten.",
+      "http_not_confirmed": "HTTP muss ausdrücklich bestätigt werden.",
+      "insecure_tls_not_confirmed": "Das Deaktivieren der TLS-Prüfung muss ausdrücklich bestätigt werden.",
+      "unknown": "Unerwarteter Fehler."
+    },
+    "abort": {
+      "already_configured": "Diese Pulse-Instanz ist bereits eingerichtet.",
+      "reauth_successful": "Pulse wurde erneut authentifiziert."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Pulse-Optionen",
+        "data": {
+          "scan_interval": "Abfrageintervall",
+          "include_guests": "VMs als Entities anlegen",
+          "include_docker_containers": "Docker-Container als Entities anlegen",
+          "critical_hosts_mode": "Kritische Hosts",
+          "critical_hosts": "Ausgewählte kritische Hosts"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "active_alerts": {"name": "Aktive Alarme"},
+      "containers_running": {"name": "Container laufend"},
+      "containers_stopped": {"name": "Container gestoppt"},
+      "cpu_usage": {"name": "CPU-Auslastung"},
+      "disk_usage": {"name": "Datenträgerauslastung"},
+      "hosts_offline": {"name": "Hosts offline"},
+      "hosts_online": {"name": "Hosts online"},
+      "memory_usage": {"name": "Speicherauslastung"},
+      "status": {"name": "Status"},
+      "storage_usage": {"name": "Storage-Auslastung"},
+      "temperature": {"name": "Temperatur"},
+      "total": {"name": "Gesamt"},
+      "uptime": {"name": "Uptime"},
+      "usage": {"name": "Auslastung"},
+      "used": {"name": "Verwendet"},
+      "vms_running": {"name": "VMs laufend"},
+      "vms_stopped": {"name": "VMs gestoppt"}
+    },
+    "binary_sensor": {
+      "infrastructure_problem": {"name": "Infrastrukturproblem"},
+      "online": {"name": "Online"},
+      "running": {"name": "Läuft"}
+    }
+  }
+}
