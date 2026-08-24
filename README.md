@@ -9,7 +9,7 @@ Devices und Entities ab.
 
 ## Status
 
-Version 0.7.1 für Pulse 6.3.1. Die Integration ist read-only und nutzt
+Version 0.7.2 für Pulse 6.3.1. Die Integration ist read-only und nutzt
 den Header `X-API-Token` mit einem Token, der nur den Scope `monitoring:read`
 benötigt.
 

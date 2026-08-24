@@ -1405,3 +1405,24 @@ def test_rendered_list_attributes_contain_only_strings(fixture_state: dict) -> N
                 f"{type(entity).__name__}.{key} enthält Nicht-Strings: {value[:2]}"
             )
     assert checked > 0, "kein Listenattribut geprüft — Test wäre wirkungslos"
+
+
+def test_container_problem_sensor_names_the_containers() -> None:
+    """Ein Zähler ohne Namen ist nicht handlungsfähig.
+
+    Der Nutzer sieht „5" und müsste zu Pulse wechseln, um zu erfahren, welche
+    fünf Container gemeint sind.
+    """
+    data = normalize_state(_container_alert_payload())
+    entry = _entry(options={CONF_INCLUDE_CONTAINERS: True})
+    coordinator = _coordinator(entry, data)
+    host_id = next(iter(data.hosts))
+    assert sensor._count_container_problems(data, host_id) > 0
+    description = next(
+        item for item in sensor.HOST_SENSOR_DESCRIPTIONS if item.key == "container_problems"
+    )
+    entity = sensor.PulseHostSensor(coordinator, host_id, description)
+
+    containers = entity.extra_state_attributes["containers"]
+    assert len(containers) == entity.native_value
+    assert all(isinstance(line, str) for line in containers)

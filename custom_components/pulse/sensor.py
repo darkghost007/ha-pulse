@@ -661,6 +661,10 @@ class PulseHostSensor(PulseHostEntity, PulseResourceSensor):
             return _host_health_attributes(data, self.current_resource_id)
         if self.entity_description.key == "disk_temperature":
             return {"disks": _host_disk_temperatures(data, self.current_resource_id)}
+        if self.entity_description.key == "container_problems":
+            if "alerts" in data.stale:
+                return None
+            return {"containers": _container_problem_details(data, self.current_resource_id)}
         if self.entity_description.key == "disk_problems":
             return {"disks": _host_disk_problem_details(data, self.current_resource_id)}
         if self.entity_description.key == "disk_life_remaining":
@@ -1004,7 +1008,8 @@ def _count_children(children, host_id: str, *, running: bool) -> int:
     return sum(1 for child in children if child.host_canonical_id == host_id and child.is_running is running)
 
 
-def _count_container_problems(data: PulseData, host_id: str) -> int:
+def _problem_containers(data: PulseData, host_id: str) -> list[PulseResource]:
+    """Auffällige Container eines Hosts — eigener Zustand oder offener Alarm."""
     problem_ids = {
         container.canonical_id
         for container in data.containers.values()
@@ -1016,7 +1021,31 @@ def _count_container_problems(data: PulseData, host_id: str) -> int:
                 continue
             if alert.resource_id in {container.resource_id, container.canonical_id}:
                 problem_ids.add(container.canonical_id)
-    return len(problem_ids)
+    return sorted(
+        (
+            container
+            for container in data.containers.values()
+            if container.canonical_id in problem_ids
+        ),
+        key=lambda container: container.name or "",
+    )
+
+
+def _count_container_problems(data: PulseData, host_id: str) -> int:
+    return len(_problem_containers(data, host_id))
+
+
+def _container_problem_details(data: PulseData, host_id: str) -> list[str]:
+    """Namen der auffälligen Container.
+
+    Ein reiner Zähler ist in einer Übersicht nicht handlungsfähig: Der Nutzer
+    sieht 5 und muss zu Pulse wechseln, um zu erfahren, welche fünf.
+    """
+    return [
+        f"{container.name or container.canonical_id}"
+        f" · {STATUS_LABELS.get(container.status or 'unknown', container.status)}"
+        for container in _problem_containers(data, host_id)
+    ]
 
 
 def _container_has_problem(container: PulseResource) -> bool:
