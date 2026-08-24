@@ -49,8 +49,9 @@ def test_fixture_counts_follow_live_schema(fixture_state: dict) -> None:
     assert len(data.storages) == 2
     assert len(data.physical_disks) == 2
     assert len(data.alerts) == 4
-    assert data.summary.hosts_online == 3
-    assert data.summary.hosts_offline == 1
+    # `degraded` ist erreichbar und zählt daher als online.
+    assert data.summary.hosts_online == 4
+    assert data.summary.hosts_offline == 0
     assert data.summary.vms_running == 2
     assert data.summary.containers_running == 2
     assert data.summary.containers_stopped == 1
@@ -211,3 +212,31 @@ def test_unparseable_alert_inside_valid_list_marks_alerts_stale() -> None:
 
     assert len(data.alerts) == 1
     assert "alerts" in data.stale
+
+
+def test_degraded_host_is_online_but_not_healthy() -> None:
+    """`degraded` bedeutet erreichbar mit Warnung — nicht offline.
+
+    Ein connectivity-Sensor, der einen erreichbaren Host als offline meldet,
+    ist schlicht falsch; die Warnung gehört in den Gesundheits-Aggregatsensor.
+    """
+
+    def _host(status: str) -> dict:
+        return {
+            "id": f"agent-{status}",
+            "type": "agent",
+            "name": status,
+            "status": status,
+            "canonicalIdentity": {"primaryId": f"agent:{status}", "aliases": []},
+        }
+
+    data = normalize_state({"resources": [_host("degraded"), _host("offline"), _host("online")]})
+
+    degraded = data.hosts["agent:degraded"]
+    assert degraded.is_host_online is True
+    assert degraded.is_host_healthy is False
+
+    assert data.hosts["agent:offline"].is_host_online is False
+    assert data.hosts["agent:online"].is_host_healthy is True
+    assert data.summary.hosts_online == 2
+    assert data.summary.hosts_offline == 1

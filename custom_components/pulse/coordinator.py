@@ -25,6 +25,7 @@ from .const import (
     DOMAIN,
     GUEST_TYPES,
     HEALTHY_STATES,
+    OFFLINE_STATES,
     HOST_TYPES,
     PHYSICAL_DISK_TYPES,
     RUNNING_STATES,
@@ -78,6 +79,14 @@ class PulseResource:
 
     @property
     def is_host_online(self) -> bool:
+        """Erreichbarkeit — `degraded` zählt als online, nur echte Ausfälle nicht."""
+
+        return self.status is not None and self.status not in OFFLINE_STATES
+
+    @property
+    def is_host_healthy(self) -> bool:
+        """Gesundheit — `degraded` zählt hier als Problem."""
+
         return self.status in HEALTHY_STATES
 
 

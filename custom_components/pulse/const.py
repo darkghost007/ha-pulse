@@ -44,6 +44,10 @@ PHYSICAL_DISK_TYPES: Final = frozenset({TYPE_DISK})
 RUNNING_STATES: Final = frozenset({"running", "online"})
 #: Status, die einen gesunden Host kennzeichnen.
 HEALTHY_STATES: Final = frozenset({"online", "active", "running"})
+#: Status, bei denen ein Host nicht erreichbar ist. `degraded` gehört bewusst
+#: NICHT dazu: ein Host mit Warnung ist erreichbar und darf in einem
+#: connectivity-Sensor nicht als offline erscheinen.
+OFFLINE_STATES: Final = frozenset({"offline", "unreachable", "missing", "error", "unknown"})
 
 PLATFORMS: Final = [Platform.BINARY_SENSOR, Platform.SENSOR]
 

@@ -172,7 +172,7 @@ class PulseInfrastructureProblemBinarySensor(PulseEntity, BinarySensorEntity):
         critical_hosts = self._critical_host_ids()
         if not critical_hosts:
             return None if not data.hosts else False
-        if any(host_id not in data.hosts or not data.hosts[host_id].is_host_online for host_id in critical_hosts):
+        if any(host_id not in data.hosts or not data.hosts[host_id].is_host_healthy for host_id in critical_hosts):
             return True
         return False
 
@@ -185,7 +185,7 @@ class PulseInfrastructureProblemBinarySensor(PulseEntity, BinarySensorEntity):
         triggering_hosts = [
             {"id": host_id, "name": data.hosts[host_id].name if host_id in data.hosts else host_id}
             for host_id in sorted(critical_hosts)
-            if host_id not in data.hosts or not data.hosts[host_id].is_host_online
+            if host_id not in data.hosts or not data.hosts[host_id].is_host_healthy
         ]
         triggering_alerts = [
             {
