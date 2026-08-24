@@ -73,6 +73,14 @@
       "host_containers_stopped": {"name": "Stopped containers"},
       "host_guests_running": {"name": "Running guests"},
       "host_guests_stopped": {"name": "Stopped guests"},
+      "health": {
+        "name": "Device status",
+        "state": {
+          "ok": "OK",
+          "warning": "Warning",
+          "problem": "Problem"
+        }
+      },
       "hosts_offline": {"name": "Hosts offline"},
       "hosts_online": {"name": "Hosts online"},
       "memory_usage": {"name": "Memory usage"},

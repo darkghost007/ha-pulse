@@ -37,6 +37,7 @@ _LOGGER = logging.getLogger(__name__)
 RESOURCE_ENTITY_KEYS = (
     "online",
     "running",
+    "health",
     "cpu_usage",
     "memory_usage",
     "storage_usage",
@@ -54,7 +55,7 @@ RESOURCE_ENTITY_KEYS = (
     "guests_stopped",
 )
 RESOURCE_ENTITY_PLATFORMS = ("sensor", "binary_sensor")
-ENTITY_RESOURCE_TYPES = HOST_TYPES | GUEST_TYPES | CONTAINER_TYPES | STORAGE_TYPES | PHYSICAL_DISK_TYPES
+ENTITY_RESOURCE_TYPES = HOST_TYPES | GUEST_TYPES | CONTAINER_TYPES | STORAGE_TYPES
 
 
 @dataclass(slots=True)
@@ -138,6 +139,7 @@ class PulseData:
     last_update: datetime | None
     ignored_types: dict[str, int] = field(default_factory=dict)
     stale: set[str] = field(default_factory=set)
+    removed_resource_ids: set[str] = field(default_factory=set)
 
     @property
     def resources(self) -> dict[str, PulseResource]:
@@ -252,6 +254,7 @@ def normalize_state(payload: dict[str, Any]) -> PulseData:
     storages: dict[str, PulseResource] = {}
     physical_disks: dict[str, PulseResource] = {}
     ignored_types: dict[str, int] = {}
+    removed_resource_ids: set[str] = set()
 
     for raw in resources:
         if not isinstance(raw, dict):
@@ -271,9 +274,14 @@ def normalize_state(payload: dict[str, Any]) -> PulseData:
         elif resource_type in CONTAINER_TYPES:
             containers[model.canonical_id] = model
         elif resource_type in STORAGE_TYPES:
+            if _should_skip_storage(raw, model):
+                ignored_types[resource_type or "missing"] = ignored_types.get(resource_type or "missing", 0) + 1
+                removed_resource_ids.add(model.canonical_id)
+                continue
             storages[model.canonical_id] = model
         elif resource_type in PHYSICAL_DISK_TYPES:
             physical_disks[model.canonical_id] = model
+            removed_resource_ids.add(model.canonical_id)
         else:
             ignored_types[resource_type or "missing"] = ignored_types.get(resource_type or "missing", 0) + 1
 
@@ -310,6 +318,7 @@ def normalize_state(payload: dict[str, Any]) -> PulseData:
         last_update=parse_pulse_time(payload.get("lastUpdate")),
         ignored_types=ignored_types,
         stale=stale,
+        removed_resource_ids=removed_resource_ids,
     )
 
 
@@ -353,9 +362,60 @@ def _resource_from_raw(raw: dict[str, Any], by_resource_id: dict[str, str]) -> P
         storage_usage=storage_usage,
         storage_used=_positive_int(disk.get("used")) if isinstance(disk, dict) else None,
         storage_total=_positive_int(disk.get("total")) if isinstance(disk, dict) else None,
-        temperature=_number(raw.get("temperature")),
+        temperature=_resource_temperature(raw),
         uptime_seconds=_positive_number(raw.get("uptime")),
     )
+
+
+def _should_skip_storage(raw: dict[str, Any], resource: PulseResource) -> bool:
+    """Filtert Unraid-Mitglieder und leere Storage-Schatten ohne stale zu setzen."""
+
+    if resource.storage_total is None or resource.storage_total <= 0:
+        return True
+    if _storage_kind(raw) == "unraid-cache-pool" and "zfs" not in _resource_tags(raw):
+        return True
+    return False
+
+
+def _storage_kind(raw: dict[str, Any]) -> str | None:
+    storage = raw.get("storage")
+    if isinstance(storage, dict):
+        value = _string(storage.get("type")) or _string(storage.get("kind"))
+        if value:
+            return value
+    return (
+        _string(raw.get("storageType"))
+        or _string(raw.get("storage_type"))
+        or _string(raw.get("subType"))
+        or _string(raw.get("subtype"))
+    )
+
+
+def _resource_tags(raw: dict[str, Any]) -> set[str]:
+    tags = raw.get("tags")
+    if isinstance(tags, str):
+        return {tags}
+    if not isinstance(tags, list):
+        return set()
+    output: set[str] = set()
+    for item in tags:
+        if isinstance(item, str) and item:
+            output.add(item)
+        elif isinstance(item, dict):
+            value = _string(item.get("name")) or _string(item.get("id")) or _string(item.get("tag"))
+            if value:
+                output.add(value)
+    return output
+
+
+def _resource_temperature(raw: dict[str, Any]) -> float | None:
+    temperature = _number(raw.get("temperature"))
+    if temperature is not None:
+        return temperature
+    physical_disk = raw.get("physicalDisk")
+    if isinstance(physical_disk, dict):
+        return _number(physical_disk.get("temperature"))
+    return None
 
 
 def _alert_from_raw(raw: dict[str, Any]) -> PulseAlert:
@@ -479,6 +539,38 @@ def _migrate_resource_identity(
         return
     identifiers = (old_device.identifiers - {old_identifier}) | {new_identifier}
     device_registry.async_update_device(old_device.id, new_identifiers=identifiers)
+
+
+def async_cleanup_removed_resources(hass: HomeAssistant, entry: ConfigEntry, data: PulseData) -> None:
+    """Entfernt Registry-Reste für nicht mehr als Geräte modellierte Ressourcen."""
+
+    if not data.removed_resource_ids:
+        return
+    registry = er.async_get(hass)
+    for resource_id in data.removed_resource_ids:
+        _remove_resource_entities(registry, entry.entry_id, resource_id)
+
+    device_registry = dr.async_get(hass)
+    identifier_prefix = f"{entry.entry_id}_"
+    for device in list(device_registry.devices.values()):
+        if entry.entry_id not in device.config_entries:
+            continue
+        resource_ids = {
+            identifier.removeprefix(identifier_prefix)
+            for domain, identifier in device.identifiers
+            if domain == DOMAIN and identifier.startswith(identifier_prefix)
+        }
+        if resource_ids & data.removed_resource_ids:
+            device_registry.async_remove_device(device.id)
+
+
+def _remove_resource_entities(registry: er.EntityRegistry, entry_id: str, resource_id: str) -> None:
+    for key in RESOURCE_ENTITY_KEYS:
+        unique_id = f"{entry_id}_{resource_id}_{key}"
+        for platform in RESOURCE_ENTITY_PLATFORMS:
+            entity_id = registry.async_get_entity_id(platform, DOMAIN, unique_id)
+            if entity_id:
+                registry.async_remove(entity_id)
 
 
 def remap_alias_id(resource_id: str, alias_map: dict[str, str]) -> str:

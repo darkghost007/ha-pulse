@@ -154,6 +154,26 @@ def test_physical_disks_are_not_storage_capacity_resources(fixture_state: dict) 
     assert all(disk.storage_usage is None for disk in data.physical_disks.values())
     assert all(disk.storage_used is None for disk in data.physical_disks.values())
     assert all(disk.storage_total is None for disk in data.physical_disks.values())
+    assert set(data.physical_disks) <= data.removed_resource_ids
+
+
+def test_unraid_storage_pools_are_detected_by_tag_not_usage() -> None:
+    data = normalize_state(
+        {
+            "resources": [
+                _storage("pool:zfs-empty", "res-zfs-empty", 0, 1000, "unraid-cache-pool", ["zfs"]),
+                _storage("member:full", "res-member-full", 95, 1000, "unraid-cache-pool", ["none"]),
+                _storage("pool:zero-total", "res-zero-total", 50, 0, "unraid-cache-pool", ["zfs"]),
+                _storage("pool:generic", "res-generic", 10, 1000, "generic", ["none"]),
+            ],
+            "activeAlerts": [],
+        }
+    )
+
+    assert set(data.storages) == {"pool:zfs-empty", "pool:generic"}
+    assert data.ignored_types == {"storage": 2}
+    assert data.removed_resource_ids == {"member:full", "pool:zero-total"}
+    assert "resources" not in data.stale
 
 
 def test_unparseable_entity_resource_inside_valid_list_marks_resources_stale() -> None:
@@ -240,3 +260,22 @@ def test_degraded_host_is_online_but_not_healthy() -> None:
     assert data.hosts["agent:online"].is_host_healthy is True
     assert data.summary.hosts_online == 2
     assert data.summary.hosts_offline == 1
+
+
+def _storage(
+    primary_id: str,
+    resource_id: str,
+    current: float,
+    total: int,
+    storage_type: str,
+    tags: list[str],
+) -> dict:
+    return {
+        "id": resource_id,
+        "type": "storage",
+        "status": "online",
+        "storage": {"type": storage_type},
+        "tags": tags,
+        "canonicalIdentity": {"primaryId": primary_id, "aliases": []},
+        "disk": {"current": current, "used": 1, "total": total, "free": max(total - 1, 0)},
+    }

@@ -7,7 +7,7 @@ Devices und Entities ab.
 
 ## Status
 
-Version 0.2.0 für Pulse 6.3.1. Die Integration ist read-only und nutzt
+Version 0.3.0 für Pulse 6.3.1. Die Integration ist read-only und nutzt
 den Header `X-API-Token` mit einem Token, der nur den Scope `monitoring:read`
 benötigt.
 
@@ -32,24 +32,28 @@ eine explizite Bestätigung, weil Token und Infrastruktur-Topologie unverschlüs
 - `critical_hosts_mode`: Entweder alle aktuellen und zukünftigen Hosts oder eine
   explizite Auswahl für den Gesamtproblem-Sensor.
 
-## Entities
+## Was wird angezeigt
 
-Pro Host entstehen Online-, CPU-, Arbeitsspeicher-, Storage-, Uptime- und Status-Entities;
-Temperatur wird nur angelegt, wenn Pulse einen Wert liefert. Storage-Ressourcen
-erhalten Usage-, Used- und Total-Sensoren. VMs und optionale Docker-Container
-erhalten Running-, CPU-, Speicher- und Disk-Entities.
+Pro Host steht in der Hauptansicht ein Gerätestatus `ok`, `warning` oder
+`problem`. Er fasst Erreichbarkeit, Pulse-Warnungen, kritische Alarme und den
+Status zugehöriger Pools zusammen; die auslösenden Ressourcen und Alarme stehen
+als Attribute für die Detailansicht bereit.
 
-Am Hub-Device entstehen Zähler für aktive Alerts, Host-/VM-/Container-Status und
-`binary_sensor.pulse_infrastructure_problem`. Bei `device_class: problem` bedeutet
-`on`, dass ein kritischer Host offline ist oder ein kritischer Alert aktiv ist.
-Zusätzlich liefert `sensor.pulse_gesamtstatus` einen anzeigefertigen Zustand
-`ok`, `warning` oder `problem`; `sensor.pulse_warnungen` zählt Warn-Alerts und
-erreichbare, aber degradierte Hosts, `sensor.pulse_kritische_alarme` zählt
-kritische Alerts.
+In der Hauptansicht bleiben außerdem Online, CPU, Arbeitsspeicher, Storage,
+Uptime und Temperatur. Die Temperatur ist der höchste gültige Wert aus
+Host-Temperatur und zugehörigen physischen Platten; Werte `<= 0` werden
+ignoriert. Physische Platten erscheinen bewusst nicht als eigene Geräte oder
+Entities, sondern fließen in Host-Status und Host-Temperatur ein.
 
-Pro Host gibt es Container- und Gästezähler unabhängig davon, ob Docker-Container
-als eigene Entities aktiviert sind: laufende/gestoppte Container,
-Container-Probleme sowie laufende/gestoppte Gäste.
+Storage-Devices werden nur für echte Pools angelegt. Bei Unraid werden
+Cache-Pool-Mitglieder und leere Array-Schatten übersprungen; für Vulpo reichen
+die Pool-Auslastungen. Used-/Total-Werte, rohe Statuswerte und Zähler bleiben
+als Diagnose-Entities erhalten.
+
+Am Hub-Device entstehen zusätzlich Gesamtstatus, Warnungen, kritische Alarme,
+aktive Alerts und Host-/VM-/Container-Zähler. `binary_sensor.pulse_infrastructure_problem`
+bleibt für Automationen erhalten und wird `on`, wenn ein kritischer Host offline
+ist oder ein kritischer Alert aktiv ist.
 
 ## Sicherheit
 

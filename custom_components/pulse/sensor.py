@@ -40,7 +40,6 @@ from .entity import (
     PulseEntity,
     PulseGuestEntity,
     PulseHostEntity,
-    PulsePhysicalDiskEntity,
     PulseStorageEntity,
 )
 
@@ -67,6 +66,12 @@ class PulseSummarySensorDescription(SensorEntityDescription):
 
 
 HOST_SENSOR_DESCRIPTIONS: tuple[PulseResourceSensorDescription, ...] = (
+    PulseResourceSensorDescription(
+        key="health",
+        translation_key="health",
+        device_class=SensorDeviceClass.ENUM,
+        value_fn=lambda resource: None,
+    ),
     PulseResourceSensorDescription(
         key="cpu_usage",
         translation_key="cpu_usage",
@@ -114,6 +119,7 @@ HOST_SENSOR_DESCRIPTIONS: tuple[PulseResourceSensorDescription, ...] = (
         key="containers_running",
         translation_key="host_containers_running",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:docker",
         value_fn=lambda resource: None,
     ),
@@ -121,6 +127,7 @@ HOST_SENSOR_DESCRIPTIONS: tuple[PulseResourceSensorDescription, ...] = (
         key="containers_stopped",
         translation_key="host_containers_stopped",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:docker",
         value_fn=lambda resource: None,
     ),
@@ -128,6 +135,7 @@ HOST_SENSOR_DESCRIPTIONS: tuple[PulseResourceSensorDescription, ...] = (
         key="container_problems",
         translation_key="host_container_problems",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:alert",
         value_fn=lambda resource: None,
     ),
@@ -135,6 +143,7 @@ HOST_SENSOR_DESCRIPTIONS: tuple[PulseResourceSensorDescription, ...] = (
         key="guests_running",
         translation_key="host_guests_running",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:desktop-tower-monitor",
         value_fn=lambda resource: None,
     ),
@@ -142,6 +151,7 @@ HOST_SENSOR_DESCRIPTIONS: tuple[PulseResourceSensorDescription, ...] = (
         key="guests_stopped",
         translation_key="host_guests_stopped",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:desktop-tower-monitor",
         value_fn=lambda resource: None,
     ),
@@ -213,26 +223,6 @@ STORAGE_SENSOR_DESCRIPTIONS: tuple[PulseResourceSensorDescription, ...] = (
     ),
 )
 
-PHYSICAL_DISK_SENSOR_DESCRIPTIONS: tuple[PulseResourceSensorDescription, ...] = (
-    PulseResourceSensorDescription(
-        key="status",
-        translation_key="status",
-        device_class=SensorDeviceClass.ENUM,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        icon="mdi:harddisk",
-        value_fn=lambda resource: resource.status,
-    ),
-    PulseResourceSensorDescription(
-        key="temperature",
-        translation_key="temperature",
-        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-        device_class=SensorDeviceClass.TEMPERATURE,
-        state_class=SensorStateClass.MEASUREMENT,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda resource: resource.temperature,
-    ),
-)
-
 SUMMARY_SENSOR_DESCRIPTIONS: tuple[PulseSummarySensorDescription, ...] = (
     PulseSummarySensorDescription(
         key="overall_status",
@@ -244,6 +234,7 @@ SUMMARY_SENSOR_DESCRIPTIONS: tuple[PulseSummarySensorDescription, ...] = (
         key="warnings",
         translation_key="warnings",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:alert-outline",
         value_fn=lambda data: None,
     ),
@@ -251,6 +242,7 @@ SUMMARY_SENSOR_DESCRIPTIONS: tuple[PulseSummarySensorDescription, ...] = (
         key="critical_alerts",
         translation_key="critical_alerts",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:alert-octagon",
         value_fn=lambda data: None,
     ),
@@ -258,6 +250,7 @@ SUMMARY_SENSOR_DESCRIPTIONS: tuple[PulseSummarySensorDescription, ...] = (
         key="active_alerts",
         translation_key="active_alerts",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:alert",
         value_fn=lambda data: data.summary.active_alerts,
     ),
@@ -265,6 +258,7 @@ SUMMARY_SENSOR_DESCRIPTIONS: tuple[PulseSummarySensorDescription, ...] = (
         key="hosts_online",
         translation_key="hosts_online",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:server",
         value_fn=lambda data: data.summary.hosts_online,
     ),
@@ -272,6 +266,7 @@ SUMMARY_SENSOR_DESCRIPTIONS: tuple[PulseSummarySensorDescription, ...] = (
         key="hosts_offline",
         translation_key="hosts_offline",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:server-off",
         value_fn=lambda data: data.summary.hosts_offline,
     ),
@@ -279,6 +274,7 @@ SUMMARY_SENSOR_DESCRIPTIONS: tuple[PulseSummarySensorDescription, ...] = (
         key="vms_running",
         translation_key="vms_running",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:desktop-tower-monitor",
         value_fn=lambda data: data.summary.vms_running,
     ),
@@ -286,6 +282,7 @@ SUMMARY_SENSOR_DESCRIPTIONS: tuple[PulseSummarySensorDescription, ...] = (
         key="vms_stopped",
         translation_key="vms_stopped",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:desktop-tower-monitor",
         value_fn=lambda data: data.summary.vms_stopped,
     ),
@@ -293,6 +290,7 @@ SUMMARY_SENSOR_DESCRIPTIONS: tuple[PulseSummarySensorDescription, ...] = (
         key="containers_running",
         translation_key="containers_running",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:docker",
         value_fn=lambda data: data.summary.containers_running,
     ),
@@ -300,6 +298,7 @@ SUMMARY_SENSOR_DESCRIPTIONS: tuple[PulseSummarySensorDescription, ...] = (
         key="containers_stopped",
         translation_key="containers_stopped",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:docker",
         value_fn=lambda data: data.summary.containers_stopped,
     ),
@@ -336,7 +335,7 @@ async def async_setup_entry(
         for resource_id in sorted(host_ids):
             resource = data.hosts.get(resource_id)
             for description in HOST_SENSOR_DESCRIPTIONS:
-                if description.key == "temperature" and (resource is None or resource.temperature is None):
+                if description.key == "temperature" and _host_temperature_value(data, resource_id) is None:
                     continue
                 unique = f"host_{resource_id}_{description.key}"
                 if unique not in known:
@@ -369,15 +368,6 @@ async def async_setup_entry(
                 if unique not in known:
                     known.add(unique)
                     entities.append(PulseStorageSensor(coordinator, resource_id, description))
-
-        for resource_id, resource in data.physical_disks.items():
-            for description in PHYSICAL_DISK_SENSOR_DESCRIPTIONS:
-                if description.key == "temperature" and resource.temperature is None:
-                    continue
-                unique = f"physical_disk_{resource_id}_{description.key}"
-                if unique not in known:
-                    known.add(unique)
-                    entities.append(PulsePhysicalDiskSensor(coordinator, resource_id, description))
 
         if entities:
             async_add_entities(entities)
@@ -461,11 +451,29 @@ class PulseHostSensor(PulseHostEntity, PulseResourceSensor):
     ) -> None:
         PulseHostEntity.__init__(self, coordinator, resource_id, description.key)
         self.entity_description = description
+        if description.key == "health":
+            self._attr_options = [OVERALL_STATUS_OK, OVERALL_STATUS_WARNING, OVERALL_STATUS_PROBLEM]
         if description.key == "status":
             self._attr_options = ["online", "offline", "degraded", "unknown", "active", "running"]
 
     @property
+    def available(self) -> bool:
+        if self.entity_description.key == "health":
+            return self.coordinator.data is not None and self.coordinator.last_update_success
+        return super().available
+
+    @property
     def native_value(self) -> Any:
+        if self.entity_description.key == "health":
+            data = self.coordinator.data
+            if data is None:
+                return None
+            return _host_health_value(data, self.current_resource_id)
+        if self.entity_description.key == "temperature":
+            data = self.coordinator.data
+            if data is None or "resources" in data.stale:
+                return None
+            return _host_temperature_value(data, self.current_resource_id)
         if self.entity_description.key in {
             "containers_running",
             "containers_stopped",
@@ -490,6 +498,17 @@ class PulseHostSensor(PulseHostEntity, PulseResourceSensor):
             if self.entity_description.key == "guests_stopped":
                 return _count_children(data.guests.values(), resource.canonical_id, running=False)
         return PulseResourceSensor.native_value.fget(self)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        data = self.coordinator.data
+        if data is None:
+            return None
+        if self.entity_description.key == "health":
+            return _host_health_attributes(data, self.current_resource_id)
+        if self.entity_description.key == "temperature":
+            return {"disks": _host_disk_temperatures(data, self.current_resource_id)}
+        return None
 
 
 class PulseHostUptimeSensor(PulseHostEntity, SensorEntity):
@@ -548,29 +567,72 @@ class PulseStorageSensor(PulseStorageEntity, PulseResourceSensor):
         self.entity_description = description
 
 
-class PulsePhysicalDiskSensor(PulsePhysicalDiskEntity, PulseResourceSensor):
-    """Sensor für physische Platten."""
-
-    entity_description: PulseResourceSensorDescription
-
-    def __init__(
-        self,
-        coordinator: PulseDataUpdateCoordinator,
-        resource_id: str,
-        description: PulseResourceSensorDescription,
-    ) -> None:
-        PulsePhysicalDiskEntity.__init__(self, coordinator, resource_id, description.key)
-        self.entity_description = description
-        if description.key == "status":
-            self._attr_options = ["online", "offline", "unknown", "warning", "critical"]
-
-
 def _critical_host_ids(data: PulseData, entry: ConfigEntry) -> set[str]:
     alias_map = dict(entry.options.get(CONF_ALIAS_MAP, {}))
     mode = entry.options.get(CONF_CRITICAL_HOSTS_MODE, CRITICAL_MODE_ALL)
     if mode == CRITICAL_MODE_SELECTED:
         return remap_alias_ids(entry.options.get(CONF_CRITICAL_HOSTS, []), alias_map)
     return remap_alias_ids(set(entry.options.get(CONF_KNOWN_HOSTS, [])) | set(data.hosts), alias_map)
+
+
+def _host_health_value(data: PulseData, host_id: str) -> str | None:
+    if "resources" in data.stale or "alerts" in data.stale:
+        return None
+    host = data.hosts.get(host_id)
+    if host is None or not host.is_host_online:
+        return OVERALL_STATUS_PROBLEM
+    if any(alert.level == "critical" for alert in _host_alerts(data, host_id)):
+        return OVERALL_STATUS_PROBLEM
+    if not host.is_host_healthy:
+        return OVERALL_STATUS_WARNING
+    if any(alert.level == "warning" for alert in _host_alerts(data, host_id)):
+        return OVERALL_STATUS_WARNING
+    if any(storage.status != "online" for storage in _host_storages(data, host_id)):
+        return OVERALL_STATUS_WARNING
+    return OVERALL_STATUS_OK
+
+
+def _host_health_attributes(data: PulseData, host_id: str) -> dict[str, Any]:
+    triggering_alerts = [
+        {
+            "id": alert.alert_id,
+            "level": alert.level,
+            "type": alert.type,
+            "resource_id": alert.resource_id,
+        }
+        for alert in _host_alerts(data, host_id)
+        if alert.level in {"warning", "critical"}
+    ]
+    triggering_resources: list[dict[str, Any]] = []
+    host = data.hosts.get(host_id)
+    if "resources" not in data.stale:
+        if host is None:
+            triggering_resources.append(
+                {"id": host_id, "name": host_id, "type": "agent", "status": "missing", "reason": "offline"}
+            )
+        elif not host.is_host_online:
+            triggering_resources.append(_resource_attribute(host, "offline"))
+        elif not host.is_host_healthy:
+            triggering_resources.append(_resource_attribute(host, "degraded"))
+        triggering_resources.extend(
+            _resource_attribute(storage, "pool_not_online")
+            for storage in _host_storages(data, host_id)
+            if storage.status != "online"
+        )
+    return {
+        "triggering_alerts": triggering_alerts,
+        "triggering_resources": triggering_resources,
+    }
+
+
+def _resource_attribute(resource: PulseResource, reason: str) -> dict[str, Any]:
+    return {
+        "id": resource.canonical_id,
+        "name": resource.name,
+        "type": resource.type,
+        "status": resource.status,
+        "reason": reason,
+    }
 
 
 def _problem_hosts(data: PulseData, entry: ConfigEntry) -> list[dict[str, str]]:
@@ -631,6 +693,57 @@ def _triggering_alerts(data: PulseData) -> list[dict[str, Any]]:
         for alert in data.alerts
         if alert.level in {"warning", "critical"}
     ]
+
+
+def _host_alerts(data: PulseData, host_id: str):
+    resource_ids = _host_related_resource_ids(data, host_id)
+    return [alert for alert in data.alerts if alert.resource_id in resource_ids]
+
+
+def _host_related_resource_ids(data: PulseData, host_id: str) -> set[str]:
+    resource_ids: set[str] = {host_id}
+    host = data.hosts.get(host_id)
+    if host is not None:
+        resource_ids.update({host.resource_id, host.canonical_id})
+    for resource in _host_child_resources(data, host_id):
+        resource_ids.update({resource.resource_id, resource.canonical_id})
+    return resource_ids
+
+
+def _host_child_resources(data: PulseData, host_id: str) -> list[PulseResource]:
+    return [
+        resource
+        for resources in (data.guests, data.containers, data.storages, data.physical_disks)
+        for resource in resources.values()
+        if resource.parent_canonical_id == host_id
+    ]
+
+
+def _host_storages(data: PulseData, host_id: str) -> list[PulseResource]:
+    return [resource for resource in data.storages.values() if resource.parent_canonical_id == host_id]
+
+
+def _host_temperature_value(data: PulseData, host_id: str) -> float | None:
+    values = []
+    host = data.hosts.get(host_id)
+    if host is not None and _valid_temperature(host.temperature):
+        values.append(host.temperature)
+    values.extend(item["temperature"] for item in _host_disk_temperatures(data, host_id))
+    if not values:
+        return None
+    return round(max(values), 1)
+
+
+def _host_disk_temperatures(data: PulseData, host_id: str) -> list[dict[str, Any]]:
+    return [
+        {"name": disk.name, "temperature": round(disk.temperature, 1)}
+        for disk in sorted(data.physical_disks.values(), key=lambda item: item.name)
+        if disk.parent_canonical_id == host_id and _valid_temperature(disk.temperature)
+    ]
+
+
+def _valid_temperature(value: float | None) -> bool:
+    return value is not None and value > 0
 
 
 def _count_children(children, host_id: str, *, running: bool) -> int:

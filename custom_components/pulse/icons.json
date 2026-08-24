@@ -45,6 +45,13 @@
       "host_guests_stopped": {
         "default": "mdi:desktop-tower-monitor"
       },
+      "health": {
+        "state": {
+          "ok": "mdi:check-circle",
+          "problem": "mdi:alert-octagon",
+          "warning": "mdi:alert"
+        }
+      },
       "hosts_offline": {
         "default": "mdi:server-off"
       },
