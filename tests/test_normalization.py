@@ -176,6 +176,61 @@ def test_unraid_storage_pools_are_detected_by_tag_not_usage() -> None:
     assert "resources" not in data.stale
 
 
+def test_host_canonical_id_follows_skipped_intermediate_resources() -> None:
+    data = normalize_state(
+        {
+            "resources": [
+                _host("host:1", "res-host"),
+                _storage("member:1", "res-member", 95, 1000, "unraid-cache-pool", ["none"])
+                | {"parentId": "res-host"},
+                {
+                    "id": "res-disk",
+                    "type": "physical_disk",
+                    "parentId": "res-member",
+                    "status": "online",
+                    "canonicalIdentity": {"primaryId": "disk:1", "aliases": []},
+                    "physicalDisk": {"temperature": 37},
+                },
+            ],
+            "activeAlerts": [],
+        }
+    )
+
+    assert data.physical_disks["disk:1"].parent_canonical_id == "member:1"
+    assert data.physical_disks["disk:1"].host_canonical_id == "host:1"
+    assert data.removed_resource_ids == {"member:1", "disk:1"}
+    assert "resources" not in data.stale
+
+
+def test_host_canonical_id_cycle_is_bounded() -> None:
+    data = normalize_state(
+        {
+            "resources": [
+                {
+                    "id": "res-a",
+                    "type": "physical_disk",
+                    "parentId": "res-b",
+                    "status": "online",
+                    "canonicalIdentity": {"primaryId": "disk:a", "aliases": []},
+                },
+                {
+                    "id": "res-b",
+                    "type": "storage",
+                    "parentId": "res-a",
+                    "status": "online",
+                    "canonicalIdentity": {"primaryId": "storage:b", "aliases": []},
+                    "disk": {"current": 1, "used": 1, "total": 100, "free": 99},
+                },
+            ],
+            "activeAlerts": [],
+        }
+    )
+
+    assert data.physical_disks["disk:a"].host_canonical_id is None
+    assert data.storages["storage:b"].host_canonical_id is None
+    assert "resources" not in data.stale
+
+
 def test_unparseable_entity_resource_inside_valid_list_marks_resources_stale() -> None:
     data = normalize_state(
         {
@@ -278,4 +333,13 @@ def _storage(
         "tags": tags,
         "canonicalIdentity": {"primaryId": primary_id, "aliases": []},
         "disk": {"current": current, "used": 1, "total": total, "free": max(total - 1, 0)},
+    }
+
+
+def _host(primary_id: str, resource_id: str) -> dict:
+    return {
+        "id": resource_id,
+        "type": "agent",
+        "status": "online",
+        "canonicalIdentity": {"primaryId": primary_id, "aliases": []},
     }

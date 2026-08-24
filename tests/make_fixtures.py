@@ -53,6 +53,45 @@ def clean_metrics(block: object) -> dict | None:
     return out or None
 
 
+def clean_tags(value: object, p: Pseudonymizer) -> list[str] | None:
+    if isinstance(value, str):
+        tags = [value]
+    elif isinstance(value, list):
+        tags = []
+        for item in value:
+            if isinstance(item, str):
+                tags.append(item)
+            elif isinstance(item, dict):
+                raw = item.get("name") or item.get("id") or item.get("tag")
+                if isinstance(raw, str):
+                    tags.append(raw)
+    else:
+        return None
+
+    cleaned = [tag if tag in {"none", "zfs"} else p.get(tag, "tag") for tag in tags]
+    return [tag for tag in cleaned if tag]
+
+
+def clean_storage(block: object) -> dict | None:
+    if not isinstance(block, dict):
+        return None
+    out = {
+        key: value
+        for key, value in block.items()
+        if key in {"type", "kind"} and isinstance(value, str)
+    }
+    return out or None
+
+
+def clean_physical_disk(block: object) -> dict | None:
+    if not isinstance(block, dict):
+        return None
+    temperature = block.get("temperature")
+    if not isinstance(temperature, (int, float)):
+        return None
+    return {"temperature": temperature}
+
+
 def clean_resource(res: dict, p: Pseudonymizer) -> dict:
     out: dict = {}
     for key in RESOURCE_KEYS:
@@ -69,6 +108,15 @@ def clean_resource(res: dict, p: Pseudonymizer) -> dict:
         cleaned = clean_metrics(res.get(block))
         if cleaned is not None:
             out[block] = cleaned
+    storage = clean_storage(res.get("storage"))
+    if storage is not None:
+        out["storage"] = storage
+    physical_disk = clean_physical_disk(res.get("physicalDisk"))
+    if physical_disk is not None:
+        out["physicalDisk"] = physical_disk
+    tags = clean_tags(res.get("tags"), p)
+    if tags is not None:
+        out["tags"] = tags
 
     canonical = res.get("canonicalIdentity")
     if isinstance(canonical, dict):
@@ -79,19 +127,61 @@ def clean_resource(res: dict, p: Pseudonymizer) -> dict:
     return out
 
 
-def main(source: Path, dest: Path) -> None:
-    state = json.loads(source.read_text())
-    p = Pseudonymizer()
+def should_prefer_resource(res: dict) -> bool:
+    if res.get("type") == "physical_disk":
+        physical_disk = res.get("physicalDisk")
+        temperature = physical_disk.get("temperature") if isinstance(physical_disk, dict) else res.get("temperature")
+        return isinstance(temperature, (int, float)) and temperature > 0
+    if res.get("type") == "storage":
+        tags = res.get("tags")
+        if isinstance(tags, str):
+            return tags == "zfs"
+        if isinstance(tags, list):
+            return any(tag == "zfs" or (isinstance(tag, dict) and tag.get("name") == "zfs") for tag in tags)
+    return False
 
+
+def pick_resources(resources: list[dict]) -> list[dict]:
     picked: list[dict] = []
     seen: dict[str, int] = {}
-    for res in state.get("resources", []):
+    ordered = sorted(resources, key=lambda item: not should_prefer_resource(item))
+    for res in ordered:
         rtype = res.get("type")
         limit = SAMPLE_PER_TYPE.get(rtype, 0)
         if seen.get(rtype, 0) >= limit:
             continue
         seen[rtype] = seen.get(rtype, 0) + 1
-        picked.append(clean_resource(res, p))
+        picked.append(res)
+    return add_parent_chain(picked, resources)
+
+
+def add_parent_chain(picked: list[dict], resources: list[dict]) -> list[dict]:
+    by_id = {res.get("id"): res for res in resources if isinstance(res.get("id"), str)}
+    output = list(picked)
+    included = {res.get("id") for res in output}
+    for res in list(picked):
+        current = res
+        seen: set[str] = set()
+        for _ in range(32):
+            parent_id = current.get("parentId")
+            if not isinstance(parent_id, str) or parent_id in seen:
+                break
+            seen.add(parent_id)
+            parent = by_id.get(parent_id)
+            if parent is None:
+                break
+            if parent_id not in included:
+                output.append(parent)
+                included.add(parent_id)
+            current = parent
+    return output
+
+
+def main(source: Path, dest: Path) -> None:
+    state = json.loads(source.read_text())
+    p = Pseudonymizer()
+
+    picked = [clean_resource(res, p) for res in pick_resources(state.get("resources", []))]
 
     alerts = []
     for alert in state.get("activeAlerts", [])[:4]:

@@ -40,10 +40,11 @@ Status zugehöriger Pools zusammen; die auslösenden Ressourcen und Alarme stehe
 als Attribute für die Detailansicht bereit.
 
 In der Hauptansicht bleiben außerdem Online, CPU, Arbeitsspeicher, Storage,
-Uptime und Temperatur. Die Temperatur ist der höchste gültige Wert aus
-Host-Temperatur und zugehörigen physischen Platten; Werte `<= 0` werden
-ignoriert. Physische Platten erscheinen bewusst nicht als eigene Geräte oder
-Entities, sondern fließen in Host-Status und Host-Temperatur ein.
+Uptime und Temperatur. `Temperatur` ist ausschließlich der Host-eigene
+Pulse-Wert; `Plattentemperatur` ist separat der höchste gültige Wert der
+zugehörigen physischen Platten. Werte `<= 0` werden ignoriert. Physische Platten
+erscheinen bewusst nicht als eigene Geräte oder Entities, sondern fließen in
+Host-Details und Plattentemperatur ein.
 
 Storage-Devices werden nur für echte Pools angelegt. Bei Unraid werden
 Cache-Pool-Mitglieder und leere Array-Schatten übersprungen; für Vulpo reichen

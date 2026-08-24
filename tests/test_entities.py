@@ -367,7 +367,7 @@ def test_host_health_reports_ok_warning_problem_and_unknown() -> None:
     assert stale.native_value is None
 
 
-def test_host_temperature_aggregates_host_and_disk_values() -> None:
+def test_host_temperature_is_not_influenced_by_disk_values() -> None:
     data = normalize_state(
         {
             "resources": [
@@ -389,14 +389,139 @@ def test_host_temperature_aggregates_host_and_disk_values() -> None:
         "host-1",
         next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "temperature"),
     )
+    disk_entity = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "disk_temperature"),
+    )
 
-    assert entity.native_value == 62.4
-    assert entity.extra_state_attributes == {
+    assert entity.native_value == 60.0
+    assert entity.extra_state_attributes is None
+    assert disk_entity.native_value == 62.4
+    assert disk_entity.extra_state_attributes == {
         "disks": [
             {"name": "disk-1", "temperature": 27.0},
             {"name": "disk-hot", "temperature": 62.4},
         ]
     }
+
+
+def test_disk_temperature_uses_disks_below_skipped_storage_member() -> None:
+    data = normalize_state(_nested_disk_payload())
+    entry = _entry()
+    coordinator = _coordinator(entry, data)
+    entity = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "disk_temperature"),
+    )
+
+    assert data.storages == {}
+    assert data.removed_resource_ids == {"member-1", "disk-cool", "disk-hot", "disk-zero", "disk-missing"}
+    assert entity.native_value == 37.0
+    assert entity.extra_state_attributes == {
+        "disks": [
+            {"name": "disk-cool", "temperature": 28.0},
+            {"name": "disk-hot", "temperature": 37.0},
+        ]
+    }
+
+
+@pytest.mark.asyncio
+async def test_host_and_disk_temperature_sensors_are_created_independently() -> None:
+    data = normalize_state(_nested_disk_payload())
+    entry = _entry(options={CONF_KNOWN_HOSTS: ["host-1"]})
+    coordinator = _coordinator(entry, data)
+    entry.runtime_data = coordinator
+    added = []
+
+    await sensor.async_setup_entry(SimpleNamespace(), entry, added.extend)
+
+    unique_ids = {entity.unique_id for entity in added}
+    assert "entry-1_host-1_temperature" not in unique_ids
+    assert "entry-1_host-1_disk_temperature" in unique_ids
+
+    payload = _nested_disk_payload()
+    payload["resources"] = [
+        resource
+        for resource in payload["resources"]
+        if resource["type"] != "physical_disk"
+    ]
+    payload["resources"][0]["temperature"] = 42
+    data = normalize_state(payload)
+    coordinator = _coordinator(entry, data)
+    entry.runtime_data = coordinator
+    added = []
+
+    await sensor.async_setup_entry(SimpleNamespace(), entry, added.extend)
+
+    unique_ids = {entity.unique_id for entity in added}
+    assert "entry-1_host-1_temperature" in unique_ids
+    assert "entry-1_host-1_disk_temperature" not in unique_ids
+
+
+@pytest.mark.asyncio
+async def test_nested_skipped_storage_member_creates_no_entity_or_device(hass, enable_custom_integrations) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, entry_id="entry-nested", data={CONF_HOST: "https://pulse.example"})
+    entry.add_to_hass(hass)
+    data = normalize_state(_nested_disk_payload())
+    coordinator = _coordinator(entry, data)
+    entry.runtime_data = coordinator
+    added = []
+
+    await sensor.async_setup_entry(hass, entry, added.extend)
+    async_cleanup_removed_resources(hass, entry, data)
+
+    unique_ids = {entity.unique_id for entity in added}
+    device_registry = dr.async_get(hass)
+    assert not any("_member-1_" in unique_id for unique_id in unique_ids)
+    assert not any("_disk-hot_" in unique_id for unique_id in unique_ids)
+    assert device_registry.async_get_device({(DOMAIN, f"{entry.entry_id}_member-1")}) is None
+    assert device_registry.async_get_device({(DOMAIN, f"{entry.entry_id}_disk-hot")}) is None
+
+
+def test_host_health_and_counts_use_transitive_host_parent() -> None:
+    payload = _nested_disk_payload()
+    payload["resources"].extend(
+        [
+            _resource("container-1", "app-container", "res-container", "running", parent_id="res-member"),
+            _resource("vm-1", "vm", "res-vm", "stopped", parent_id="res-member"),
+        ]
+    )
+    payload["activeAlerts"] = [
+        {
+            "id": "alert-1",
+            "level": "critical",
+            "type": "resource",
+            "resourceId": "res-container",
+        }
+    ]
+    data = normalize_state(payload)
+    entry = _entry(options={CONF_KNOWN_HOSTS: ["host-1"]})
+    coordinator = _coordinator(entry, data)
+
+    health = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "health"),
+    )
+    containers_running = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "containers_running"),
+    )
+    guests_stopped = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "guests_stopped"),
+    )
+
+    assert health.native_value == "problem"
+    assert health.extra_state_attributes["triggering_alerts"] == [
+        {"id": "alert-1", "level": "critical", "type": "resource", "resource_id": "res-container"}
+    ]
+    assert containers_running.native_value == 1
+    assert guests_stopped.native_value == 1
 
 
 @pytest.mark.asyncio
@@ -419,6 +544,7 @@ async def test_host_temperature_sensor_is_not_created_without_valid_values() -> 
     await sensor.async_setup_entry(SimpleNamespace(), entry, added.extend)
 
     assert "entry-1_host-1_temperature" not in {entity.unique_id for entity in added}
+    assert "entry-1_host-1_disk_temperature" not in {entity.unique_id for entity in added}
 
 
 @pytest.mark.asyncio
@@ -768,6 +894,30 @@ def _health_payload(
             _resource("pool-1", "storage", "res-pool", storage_status, parent_id="res-host"),
         ],
         "activeAlerts": alerts,
+    }
+
+
+def _nested_disk_payload() -> dict:
+    return {
+        "resources": [
+            _resource("host-1", "agent", "res-host", "online"),
+            _resource("member-1", "storage", "res-member", "online", parent_id="res-host")
+            | {
+                "displayName": "member-1",
+                "storage": {"type": "unraid-cache-pool"},
+                "tags": ["none"],
+                "disk": {"current": 95, "used": 950, "total": 1000, "free": 50},
+            },
+            _resource("disk-cool", "physical_disk", "res-disk-cool", "online", parent_id="res-member")
+            | {"displayName": "disk-cool", "physicalDisk": {"temperature": 28}},
+            _resource("disk-hot", "physical_disk", "res-disk-hot", "online", parent_id="res-member")
+            | {"displayName": "disk-hot", "temperature": 0, "physicalDisk": {"temperature": 37}},
+            _resource("disk-zero", "physical_disk", "res-disk-zero", "online", parent_id="res-member")
+            | {"displayName": "disk-zero", "physicalDisk": {"temperature": 0}},
+            _resource("disk-missing", "physical_disk", "res-disk-missing", "online", parent_id="res-member")
+            | {"displayName": "disk-missing"},
+        ],
+        "activeAlerts": [],
     }
 
 

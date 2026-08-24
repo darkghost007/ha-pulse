@@ -30,6 +30,9 @@
       "critical_alerts": {
         "default": "mdi:alert-octagon"
       },
+      "disk_temperature": {
+        "default": "mdi:thermometer-lines"
+      },
       "host_container_problems": {
         "default": "mdi:alert"
       },

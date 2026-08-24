@@ -43,6 +43,7 @@ RESOURCE_ENTITY_KEYS = (
     "storage_usage",
     "disk_usage",
     "temperature",
+    "disk_temperature",
     "uptime",
     "status",
     "usage",
@@ -71,6 +72,7 @@ class PulseResource:
     source_type: str | None
     parent_resource_id: str | None
     parent_canonical_id: str | None = None
+    host_canonical_id: str | None = None
     cpu_usage: float | None = None
     memory_usage: float | None = None
     storage_usage: float | None = None
@@ -240,11 +242,16 @@ def normalize_state(payload: dict[str, Any]) -> PulseData:
         stale.add("resources")
 
     by_resource_id: dict[str, str] = {}
+    resource_types: dict[str, str | None] = {}
+    parent_resource_ids: dict[str, str | None] = {}
     for raw in resources:
         if not isinstance(raw, dict):
             continue
         resource_id = _string(raw.get("id"))
         canonical_id = _canonical_id(raw)
+        if resource_id:
+            resource_types[resource_id] = _string(raw.get("type"))
+            parent_resource_ids[resource_id] = _string(raw.get("parentId"))
         if resource_id and canonical_id:
             by_resource_id[resource_id] = canonical_id
 
@@ -261,7 +268,7 @@ def normalize_state(payload: dict[str, Any]) -> PulseData:
             stale.add("resources")
             continue
         resource_type = _string(raw.get("type"))
-        model = _resource_from_raw(raw, by_resource_id)
+        model = _resource_from_raw(raw, by_resource_id, resource_types, parent_resource_ids)
         if model is None:
             ignored_types[resource_type or "missing"] = ignored_types.get(resource_type or "missing", 0) + 1
             if resource_type in ENTITY_RESOURCE_TYPES or resource_type is None:
@@ -322,7 +329,12 @@ def normalize_state(payload: dict[str, Any]) -> PulseData:
     )
 
 
-def _resource_from_raw(raw: dict[str, Any], by_resource_id: dict[str, str]) -> PulseResource | None:
+def _resource_from_raw(
+    raw: dict[str, Any],
+    by_resource_id: dict[str, str],
+    resource_types: dict[str, str | None],
+    parent_resource_ids: dict[str, str | None],
+) -> PulseResource | None:
     resource_type = _string(raw.get("type"))
     if resource_type not in HOST_TYPES | GUEST_TYPES | CONTAINER_TYPES | STORAGE_TYPES | PHYSICAL_DISK_TYPES:
         return None
@@ -357,6 +369,7 @@ def _resource_from_raw(raw: dict[str, Any], by_resource_id: dict[str, str]) -> P
         source_type=_string(raw.get("sourceType")),
         parent_resource_id=parent_resource_id,
         parent_canonical_id=by_resource_id.get(parent_resource_id or ""),
+        host_canonical_id=_host_canonical_id(resource_id, by_resource_id, resource_types, parent_resource_ids),
         cpu_usage=cpu_usage,
         memory_usage=memory_usage,
         storage_usage=storage_usage,
@@ -365,6 +378,30 @@ def _resource_from_raw(raw: dict[str, Any], by_resource_id: dict[str, str]) -> P
         temperature=_resource_temperature(raw),
         uptime_seconds=_positive_number(raw.get("uptime")),
     )
+
+
+def _host_canonical_id(
+    resource_id: str,
+    by_resource_id: dict[str, str],
+    resource_types: dict[str, str | None],
+    parent_resource_ids: dict[str, str | None],
+) -> str | None:
+    """Löst den nächsten Host-Vorfahren über die vollständige Roh-Ressourcen-Kette."""
+
+    current = resource_id
+    seen: set[str] = set()
+    for _ in range(32):
+        if current in seen:
+            return None
+        seen.add(current)
+        resource_type = resource_types.get(current)
+        if resource_type in HOST_TYPES:
+            return by_resource_id.get(current)
+        parent_id = parent_resource_ids.get(current)
+        if parent_id is None:
+            return None
+        current = parent_id
+    return None
 
 
 def _should_skip_storage(raw: dict[str, Any], resource: PulseResource) -> bool:
@@ -409,13 +446,12 @@ def _resource_tags(raw: dict[str, Any]) -> set[str]:
 
 
 def _resource_temperature(raw: dict[str, Any]) -> float | None:
-    temperature = _number(raw.get("temperature"))
-    if temperature is not None:
-        return temperature
     physical_disk = raw.get("physicalDisk")
     if isinstance(physical_disk, dict):
-        return _number(physical_disk.get("temperature"))
-    return None
+        temperature = _number(physical_disk.get("temperature"))
+        if temperature is not None:
+            return temperature
+    return _number(raw.get("temperature"))
 
 
 def _alert_from_raw(raw: dict[str, Any]) -> PulseAlert:

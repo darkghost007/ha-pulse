@@ -105,7 +105,17 @@ HOST_SENSOR_DESCRIPTIONS: tuple[PulseResourceSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
         value_fn=lambda resource: resource.temperature,
+    ),
+    PulseResourceSensorDescription(
+        key="disk_temperature",
+        translation_key="disk_temperature",
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=lambda resource: None,
     ),
     PulseResourceSensorDescription(
         key="status",
@@ -333,9 +343,10 @@ async def async_setup_entry(
             dict(entry.options.get(CONF_ALIAS_MAP, {})),
         )
         for resource_id in sorted(host_ids):
-            resource = data.hosts.get(resource_id)
             for description in HOST_SENSOR_DESCRIPTIONS:
                 if description.key == "temperature" and _host_temperature_value(data, resource_id) is None:
+                    continue
+                if description.key == "disk_temperature" and _host_disk_temperature_value(data, resource_id) is None:
                     continue
                 unique = f"host_{resource_id}_{description.key}"
                 if unique not in known:
@@ -474,6 +485,11 @@ class PulseHostSensor(PulseHostEntity, PulseResourceSensor):
             if data is None or "resources" in data.stale:
                 return None
             return _host_temperature_value(data, self.current_resource_id)
+        if self.entity_description.key == "disk_temperature":
+            data = self.coordinator.data
+            if data is None or "resources" in data.stale:
+                return None
+            return _host_disk_temperature_value(data, self.current_resource_id)
         if self.entity_description.key in {
             "containers_running",
             "containers_stopped",
@@ -506,7 +522,7 @@ class PulseHostSensor(PulseHostEntity, PulseResourceSensor):
             return None
         if self.entity_description.key == "health":
             return _host_health_attributes(data, self.current_resource_id)
-        if self.entity_description.key == "temperature":
+        if self.entity_description.key == "disk_temperature":
             return {"disks": _host_disk_temperatures(data, self.current_resource_id)}
         return None
 
@@ -715,19 +731,23 @@ def _host_child_resources(data: PulseData, host_id: str) -> list[PulseResource]:
         resource
         for resources in (data.guests, data.containers, data.storages, data.physical_disks)
         for resource in resources.values()
-        if resource.parent_canonical_id == host_id
+        if resource.host_canonical_id == host_id
     ]
 
 
 def _host_storages(data: PulseData, host_id: str) -> list[PulseResource]:
-    return [resource for resource in data.storages.values() if resource.parent_canonical_id == host_id]
+    return [resource for resource in data.storages.values() if resource.host_canonical_id == host_id]
 
 
 def _host_temperature_value(data: PulseData, host_id: str) -> float | None:
-    values = []
     host = data.hosts.get(host_id)
     if host is not None and _valid_temperature(host.temperature):
-        values.append(host.temperature)
+        return round(host.temperature, 1)
+    return None
+
+
+def _host_disk_temperature_value(data: PulseData, host_id: str) -> float | None:
+    values = []
     values.extend(item["temperature"] for item in _host_disk_temperatures(data, host_id))
     if not values:
         return None
@@ -738,7 +758,7 @@ def _host_disk_temperatures(data: PulseData, host_id: str) -> list[dict[str, Any
     return [
         {"name": disk.name, "temperature": round(disk.temperature, 1)}
         for disk in sorted(data.physical_disks.values(), key=lambda item: item.name)
-        if disk.parent_canonical_id == host_id and _valid_temperature(disk.temperature)
+        if disk.host_canonical_id == host_id and _valid_temperature(disk.temperature)
     ]
 
 
@@ -747,19 +767,19 @@ def _valid_temperature(value: float | None) -> bool:
 
 
 def _count_children(children, host_id: str, *, running: bool) -> int:
-    return sum(1 for child in children if child.parent_canonical_id == host_id and child.is_running is running)
+    return sum(1 for child in children if child.host_canonical_id == host_id and child.is_running is running)
 
 
 def _count_container_problems(data: PulseData, host_id: str) -> int:
     problem_ids = {
         container.canonical_id
         for container in data.containers.values()
-        if container.parent_canonical_id == host_id
+        if container.host_canonical_id == host_id
         and container.status not in {"running", "stopped", "online"}
     }
     for alert in data.alerts:
         for container in data.containers.values():
-            if container.parent_canonical_id != host_id:
+            if container.host_canonical_id != host_id:
                 continue
             if alert.resource_id in {container.resource_id, container.canonical_id}:
                 problem_ids.add(container.canonical_id)

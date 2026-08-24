@@ -68,6 +68,7 @@
       "cpu_usage": {"name": "CPU usage"},
       "critical_alerts": {"name": "Critical alerts"},
       "disk_usage": {"name": "Disk usage"},
+      "disk_temperature": {"name": "Disk temperature"},
       "host_container_problems": {"name": "Container problems"},
       "host_containers_running": {"name": "Running containers"},
       "host_containers_stopped": {"name": "Stopped containers"},
