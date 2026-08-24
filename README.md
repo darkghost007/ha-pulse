@@ -7,7 +7,7 @@ Devices und Entities ab.
 
 ## Status
 
-Version 0.4.0 für Pulse 6.3.1. Die Integration ist read-only und nutzt
+Version 0.5.0 für Pulse 6.3.1. Die Integration ist read-only und nutzt
 den Header `X-API-Token` mit einem Token, der nur den Scope `monitoring:read`
 benötigt.
 
@@ -39,6 +39,12 @@ Pro Host steht in der Hauptansicht ein Gerätestatus `ok`, `warning` oder
 Status zugehöriger Pools zusammen; die auslösenden Ressourcen und Alarme stehen
 als Attribute für die Detailansicht bereit.
 
+Alarme werden über alle bekannten Pulse-Kennungen der Ressource aufgelöst,
+einschließlich Docker-IDs im Format `docker:<agent>/<container>`. Die
+Detailattribute von Gerätestatus, Warnungen und kritischen Alarmen enthalten
+lesbare Angaben wie Ressource, Typ, Meldung, Zeitpunkt, Quittierung und Host,
+aber keine internen IDs oder Hashes.
+
 In der Hauptansicht bleiben außerdem Online, CPU, Arbeitsspeicher, Storage,
 Uptime und Temperatur. `Temperatur` ist ausschließlich der Host-eigene
 Pulse-Wert; `Plattentemperatur` ist separat der höchste gültige Wert der
@@ -58,7 +64,9 @@ werden nicht als Attribute ausgegeben.
 
 Netzwerk- und Platten-I/O-Raten sowie Agent-Version und letzter Agent-Bericht
 werden nur als Diagnose-Entities angelegt, wenn Pulse diese Werte für den Host
-liefert.
+liefert. Die nativen Durchsatzwerte bleiben Byte pro Sekunde; Home Assistant
+bekommt für neue Entities Megabyte pro Sekunde mit zwei Nachkommastellen als
+Anzeigevorschlag.
 
 Am Hub-Device entstehen zusätzlich Gesamtstatus, Warnungen, kritische Alarme,
 aktive Alerts und Host-/VM-/Container-Zähler. `binary_sensor.pulse_infrastructure_problem`

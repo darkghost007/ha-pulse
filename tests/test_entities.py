@@ -355,7 +355,7 @@ def test_host_health_reports_ok_warning_problem_and_unknown() -> None:
     critical = _health_payload("online", alert_level="critical", alert_resource_id="res-vm")
     problem = _host_health(critical, "host-1", entry)
     assert problem.native_value == "problem"
-    assert problem.extra_state_attributes["triggering_alerts"][0]["level"] == "critical"
+    assert problem.extra_state_attributes["alerts"][0]["level"] == "critical"
 
     missing = _host_health({"resources": [], "activeAlerts": []}, "host-1", entry)
     assert missing.available is True
@@ -517,8 +517,16 @@ def test_host_health_and_counts_use_transitive_host_parent() -> None:
     )
 
     assert health.native_value == "problem"
-    assert health.extra_state_attributes["triggering_alerts"] == [
-        {"id": "alert-1", "level": "critical", "type": "resource", "resource_id": "res-container"}
+    assert health.extra_state_attributes["alerts"] == [
+        {
+            "resource_name": None,
+            "type": "resource",
+            "message": None,
+            "level": "critical",
+            "since": None,
+            "acknowledged": False,
+            "host": "host-1",
+        }
     ]
     assert containers_running.native_value == 1
     assert guests_stopped.native_value == 1
@@ -621,6 +629,8 @@ async def test_host_diagnostic_rate_and_agent_sensors_are_created_only_with_valu
     assert by_unique["entry-1_host-1_network_rx_rate"].native_value == 2414
     assert by_unique["entry-1_host-1_network_rx_rate"].device_class is SensorDeviceClass.DATA_RATE
     assert by_unique["entry-1_host-1_network_rx_rate"].native_unit_of_measurement == UnitOfDataRate.BYTES_PER_SECOND
+    assert by_unique["entry-1_host-1_network_rx_rate"].suggested_unit_of_measurement == UnitOfDataRate.MEGABYTES_PER_SECOND
+    assert by_unique["entry-1_host-1_network_rx_rate"].suggested_display_precision == 2
     assert by_unique["entry-1_host-1_network_rx_rate"].state_class is SensorStateClass.MEASUREMENT
     assert by_unique["entry-1_host-1_network_rx_rate"].entity_category is EntityCategory.DIAGNOSTIC
     assert by_unique["entry-1_host-1_disk_write_rate"].native_value == 456
@@ -698,6 +708,144 @@ def test_pulse_infrastructure_health_flows_into_overall_status() -> None:
     )
     assert overall.native_value == "problem"
     assert overall.extra_state_attributes["infrastructure_issues"][0]["source"] == "connectionHealth"
+
+
+def test_docker_formatted_alert_maps_to_container_and_host_health() -> None:
+    data = normalize_state(_container_alert_payload())
+    entry = _entry(options={CONF_KNOWN_HOSTS: ["host-1"]})
+    coordinator = _coordinator(entry, data)
+    health = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "health"),
+    )
+
+    assert data.alerts[0].resolved_resource_id == "app-container:containerhash"
+    assert data.alerts[0].resolved_host_id == "host-1"
+    assert health.native_value == "problem"
+    assert health.extra_state_attributes["alerts"] == [
+        {
+            "resource_name": "container-a",
+            "type": "docker-container-health",
+            "message": "Container ist ungesund",
+            "level": "critical",
+            "since": datetime(2026, 8, 24, 10, 0, tzinfo=UTC),
+            "acknowledged": False,
+            "host": "host-a",
+        }
+    ]
+
+
+def test_unknown_alert_affects_overall_but_not_host_health() -> None:
+    payload = _container_alert_payload()
+    payload["activeAlerts"][0]["resourceId"] = "docker:agent-real/unknownhash"
+    data = normalize_state(payload)
+    entry = _entry(options={CONF_KNOWN_HOSTS: ["host-1"]})
+    coordinator = _coordinator(entry, data)
+    health = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "health"),
+    )
+    overall = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "overall_status"),
+    )
+    critical = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "critical_alerts"),
+    )
+
+    assert data.alerts[0].resolved_resource_id is None
+    assert data.alerts[0].resolved_host_id is None
+    assert health.native_value == "ok"
+    assert health.extra_state_attributes["alerts"] == []
+    assert overall.native_value == "problem"
+    assert critical.native_value == 1
+    assert critical.extra_state_attributes["unassigned"] == 1
+    assert "host" not in critical.extra_state_attributes["alerts"][0]
+
+
+def test_ambiguous_hash_alert_is_not_assigned_to_a_host() -> None:
+    data = normalize_state(
+        {
+            "resources": [
+                _resource("host-1", "agent", "res-host-1", "online") | {"displayName": "host-a"},
+                _resource("host-2", "agent", "res-host-2", "online") | {"displayName": "host-b"},
+                _resource("app-container:sharedhash", "app-container", "res-container-1", "running", parent_id="res-host-1"),
+                _resource("vm:sharedhash", "vm", "res-vm-1", "running", parent_id="res-host-2"),
+            ],
+            "activeAlerts": [
+                {
+                    "id": "alert-ambiguous",
+                    "level": "critical",
+                    "type": "docker-container-health",
+                    "resourceId": "docker:agent-real/sharedhash",
+                    "resourceName": "ambiguous",
+                    "message": "Mehrdeutige Ressource",
+                    "startTime": "2026-08-24T10:00:00Z",
+                }
+            ],
+        }
+    )
+    entry = _entry(options={CONF_KNOWN_HOSTS: ["host-1", "host-2"]})
+    coordinator = _coordinator(entry, data)
+    host_1 = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "health"),
+    )
+    host_2 = PulseHostSensor(
+        coordinator,
+        "host-2",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "health"),
+    )
+    critical = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "critical_alerts"),
+    )
+
+    assert data.alerts[0].resolved_resource_id is None
+    assert host_1.native_value == "ok"
+    assert host_2.native_value == "ok"
+    assert critical.extra_state_attributes["unassigned"] == 1
+
+
+def test_alert_counter_attributes_are_limited_and_readable() -> None:
+    payload = _container_alert_payload()
+    payload["activeAlerts"] = [
+        {
+            **payload["activeAlerts"][0],
+            "id": f"alert-{index}",
+            "level": "warning",
+            "message": f"Warnung {index}",
+        }
+        for index in range(27)
+    ]
+    data = normalize_state(payload)
+    entry = _entry(options={CONF_KNOWN_HOSTS: ["host-1"]})
+    coordinator = _coordinator(entry, data)
+    warnings = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "warnings"),
+    )
+
+    attrs = warnings.extra_state_attributes
+    assert warnings.native_value == 27
+    assert attrs["truncated"] == 2
+    assert attrs["unassigned"] == 0
+    assert len(attrs["alerts"]) == 25
+    assert attrs["alerts"][0] == {
+        "resource_name": "container-a",
+        "type": "docker-container-health",
+        "message": "Warnung 0",
+        "level": "warning",
+        "since": datetime(2026, 8, 24, 10, 0, tzinfo=UTC),
+        "acknowledged": False,
+        "host": "host-a",
+    }
+    assert "id" not in attrs["alerts"][0]
+    assert "resource_id" not in attrs["alerts"][0]
 
 
 @pytest.mark.asyncio
@@ -856,10 +1004,10 @@ def test_german_translations_use_requested_labels_and_enum_states() -> None:
     }
 
 
-def test_manifest_version_is_040() -> None:
+def test_manifest_version_is_050() -> None:
     manifest = json.loads((Path(__file__).parents[1] / "custom_components/pulse/manifest.json").read_text())
 
-    assert manifest["version"] == "0.4.0"
+    assert manifest["version"] == "0.5.0"
 
 
 def test_guest_without_disk_block_reports_unknown_disk(fixture_state: dict) -> None:
@@ -1169,6 +1317,42 @@ def _host_diagnostics_payload() -> dict:
             _resource("host-2", "agent", "res-host-2", "online"),
         ],
         "activeAlerts": [],
+    }
+
+
+def _container_alert_payload() -> dict:
+    return {
+        "resources": [
+            _resource("host-1", "agent", "res-host", "online") | {"displayName": "host-a"},
+            _resource(
+                "app-container:containerhash",
+                "app-container",
+                "res-container",
+                "running",
+                parent_id="res-host",
+            )
+            | {
+                "displayName": "container-a",
+                "docker": {
+                    "agentId": "agent-real",
+                    "containerId": "containerhash",
+                    "health": "unhealthy",
+                },
+                "metricsTarget": {"resourceId": "metrics-container-a"},
+            },
+        ],
+        "activeAlerts": [
+            {
+                "id": "alert-1",
+                "level": "critical",
+                "type": "docker-container-health",
+                "resourceId": "docker:agent-real/containerhash",
+                "resourceName": "container-a",
+                "message": "Container ist ungesund",
+                "startTime": "2026-08-24T10:00:00Z",
+                "acknowledged": False,
+            }
+        ],
     }
 
 

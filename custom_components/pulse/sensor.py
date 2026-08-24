@@ -30,6 +30,7 @@ from .const import (
     CRITICAL_MODE_SELECTED,
 )
 from .coordinator import (
+    PulseAlert,
     PulseData,
     PulseDataUpdateCoordinator,
     PulseResource,
@@ -49,6 +50,7 @@ SummaryValueFn = Callable[[PulseData], Any]
 OVERALL_STATUS_OK = "ok"
 OVERALL_STATUS_WARNING = "warning"
 OVERALL_STATUS_PROBLEM = "problem"
+ALERT_ATTRIBUTE_LIMIT = 25
 OPTIONAL_HOST_VALUE_KEYS = {
     "network_rx_rate",
     "network_tx_rate",
@@ -147,6 +149,8 @@ HOST_SENSOR_DESCRIPTIONS: tuple[PulseResourceSensorDescription, ...] = (
         key="network_rx_rate",
         translation_key="network_rx_rate",
         native_unit_of_measurement=UnitOfDataRate.BYTES_PER_SECOND,
+        suggested_unit_of_measurement=UnitOfDataRate.MEGABYTES_PER_SECOND,
+        suggested_display_precision=2,
         device_class=SensorDeviceClass.DATA_RATE,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -157,6 +161,8 @@ HOST_SENSOR_DESCRIPTIONS: tuple[PulseResourceSensorDescription, ...] = (
         key="network_tx_rate",
         translation_key="network_tx_rate",
         native_unit_of_measurement=UnitOfDataRate.BYTES_PER_SECOND,
+        suggested_unit_of_measurement=UnitOfDataRate.MEGABYTES_PER_SECOND,
+        suggested_display_precision=2,
         device_class=SensorDeviceClass.DATA_RATE,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -167,6 +173,8 @@ HOST_SENSOR_DESCRIPTIONS: tuple[PulseResourceSensorDescription, ...] = (
         key="disk_read_rate",
         translation_key="disk_read_rate",
         native_unit_of_measurement=UnitOfDataRate.BYTES_PER_SECOND,
+        suggested_unit_of_measurement=UnitOfDataRate.MEGABYTES_PER_SECOND,
+        suggested_display_precision=2,
         device_class=SensorDeviceClass.DATA_RATE,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -177,6 +185,8 @@ HOST_SENSOR_DESCRIPTIONS: tuple[PulseResourceSensorDescription, ...] = (
         key="disk_write_rate",
         translation_key="disk_write_rate",
         native_unit_of_measurement=UnitOfDataRate.BYTES_PER_SECOND,
+        suggested_unit_of_measurement=UnitOfDataRate.MEGABYTES_PER_SECOND,
+        suggested_display_precision=2,
         device_class=SensorDeviceClass.DATA_RATE,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -514,14 +524,24 @@ class PulseSummarySensor(PulseEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        if self.entity_description.key != "overall_status":
-            return None
         data = self.coordinator.data
         if data is None:
             return None
+        if self.entity_description.key == "warnings":
+            return _alert_list_attributes(data, _warning_alerts(data))
+        if self.entity_description.key == "critical_alerts":
+            return _alert_list_attributes(data, _critical_alerts(data))
+        if self.entity_description.key != "overall_status":
+            return None
+        alert_attrs = _alert_list_attributes(
+            data,
+            [alert for alert in data.alerts if alert.level in {"warning", "critical"}],
+        )
         return {
             "triggering_hosts": _triggering_hosts(data, self._entry),
-            "triggering_alerts": _triggering_alerts(data),
+            "triggering_alerts": alert_attrs["alerts"],
+            "triggering_alerts_truncated": alert_attrs["truncated"],
+            "unassigned_alerts": alert_attrs["unassigned"],
             "infrastructure_issues": data.infrastructure_issues,
         }
 
@@ -717,16 +737,10 @@ def _host_health_value(data: PulseData, host_id: str) -> str | None:
 
 
 def _host_health_attributes(data: PulseData, host_id: str) -> dict[str, Any]:
-    triggering_alerts = [
-        {
-            "id": alert.alert_id,
-            "level": alert.level,
-            "type": alert.type,
-            "resource_id": alert.resource_id,
-        }
-        for alert in _host_alerts(data, host_id)
-        if alert.level in {"warning", "critical"}
-    ]
+    alert_attrs = _alert_list_attributes(
+        data,
+        [alert for alert in _host_alerts(data, host_id) if alert.level in {"warning", "critical"}],
+    )
     triggering_resources: list[dict[str, Any]] = []
     host = data.hosts.get(host_id)
     if "resources" not in data.stale:
@@ -756,7 +770,10 @@ def _host_health_attributes(data: PulseData, host_id: str) -> dict[str, Any]:
             if _disk_problem_severity(disk) is not None
         )
     return {
-        "triggering_alerts": triggering_alerts,
+        "alerts": alert_attrs["alerts"],
+        "triggering_alerts": alert_attrs["alerts"],
+        "truncated": alert_attrs["truncated"],
+        "unassigned": alert_attrs["unassigned"],
         "triggering_resources": triggering_resources,
     }
 
@@ -823,31 +840,37 @@ def _triggering_hosts(data: PulseData, entry: ConfigEntry) -> list[dict[str, str
 
 
 def _triggering_alerts(data: PulseData) -> list[dict[str, Any]]:
-    return [
-        {
-            "id": alert.alert_id,
-            "level": alert.level,
-            "type": alert.type,
-            "resource_id": alert.resource_id,
-        }
-        for alert in data.alerts
-        if alert.level in {"warning", "critical"}
-    ]
+    return _alert_list_attributes(
+        data,
+        [alert for alert in data.alerts if alert.level in {"warning", "critical"}],
+    )["alerts"]
 
 
-def _host_alerts(data: PulseData, host_id: str):
-    resource_ids = _host_related_resource_ids(data, host_id)
-    return [alert for alert in data.alerts if alert.resource_id in resource_ids]
+def _alert_list_attributes(data: PulseData, alerts: list[PulseAlert]) -> dict[str, Any]:
+    return {
+        "alerts": [_alert_attribute(data, alert) for alert in alerts[:ALERT_ATTRIBUTE_LIMIT]],
+        "truncated": max(0, len(alerts) - ALERT_ATTRIBUTE_LIMIT),
+        "unassigned": sum(1 for alert in alerts if alert.resolved_resource_id is None),
+    }
 
 
-def _host_related_resource_ids(data: PulseData, host_id: str) -> set[str]:
-    resource_ids: set[str] = {host_id}
-    host = data.hosts.get(host_id)
-    if host is not None:
-        resource_ids.update({host.resource_id, host.canonical_id})
-    for resource in _host_child_resources(data, host_id):
-        resource_ids.update({resource.resource_id, resource.canonical_id})
-    return resource_ids
+def _alert_attribute(data: PulseData, alert: PulseAlert) -> dict[str, Any]:
+    output: dict[str, Any] = {
+        "resource_name": alert.resource_name,
+        "type": alert.type,
+        "message": alert.message,
+        "level": alert.level,
+        "since": alert.since,
+        "acknowledged": alert.acknowledged,
+    }
+    if alert.resolved_host_id is not None:
+        host = data.hosts.get(alert.resolved_host_id)
+        output["host"] = host.name if host is not None else alert.resolved_host_id
+    return output
+
+
+def _host_alerts(data: PulseData, host_id: str) -> list[PulseAlert]:
+    return [alert for alert in data.alerts if alert.resolved_host_id == host_id]
 
 
 def _host_child_resources(data: PulseData, host_id: str) -> list[PulseResource]:

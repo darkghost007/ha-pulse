@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.make_fixtures import Pseudonymizer, clean_resource, pick_resources
+from tests.make_fixtures import Pseudonymizer, clean_alert, clean_resource, pick_resources
 
 
 def test_fixture_generator_preserves_nested_disk_parent_chain() -> None:
@@ -66,3 +66,43 @@ def test_fixture_generator_preserves_nested_disk_parent_chain() -> None:
     assert "real" not in repr(cleaned)
     assert "serial" not in repr(cleaned)
     assert "model" not in repr(cleaned)
+
+
+def test_fixture_generator_keeps_docker_alert_shape_without_real_values() -> None:
+    p = Pseudonymizer()
+    resource = clean_resource(
+        {
+            "id": "container-resource",
+            "type": "app-container",
+            "name": "real-container",
+            "displayName": "real-container",
+            "canonicalIdentity": {"primaryId": "app-container:real-container-hash", "aliases": []},
+            "docker": {
+                "agentId": "real-agent-id",
+                "containerId": "real-container-id",
+                "health": "unhealthy",
+            },
+            "metricsTarget": {"resourceId": "real-metrics-id"},
+        },
+        p,
+    )
+    alert = clean_alert(
+        {
+            "id": "real-alert-id",
+            "level": "critical",
+            "type": "docker-container-health",
+            "resourceId": "docker:real-agent-id/real-container-id",
+            "resourceName": "real-container",
+            "message": "private alert text",
+            "startTime": "2026-08-24T10:00:00Z",
+            "acknowledged": False,
+        },
+        p,
+    )
+
+    assert resource["docker"]["agentId"] in alert["resourceId"]
+    assert resource["docker"]["containerId"] in alert["resourceId"]
+    assert alert["resourceId"].startswith("docker:")
+    assert alert["startTime"] == "2026-08-24T10:00:00Z"
+    assert "real" not in repr([resource, alert])
+    assert "private alert text" not in repr(alert)

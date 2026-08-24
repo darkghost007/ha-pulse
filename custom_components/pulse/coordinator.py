@@ -74,6 +74,7 @@ class PulseResource:
     resource_id: str
     canonical_id: str
     aliases: tuple[str, ...]
+    identity_keys: tuple[str, ...]
     name: str
     type: str
     status: str | None
@@ -127,6 +128,10 @@ class PulseAlert:
     type: str | None
     resource_id: str | None
     resource_name: str | None
+    message: str | None
+    since: datetime | None
+    resolved_resource_id: str | None
+    resolved_host_id: str | None
     acknowledged: bool
 
     @property
@@ -313,12 +318,35 @@ def normalize_state(payload: dict[str, Any]) -> PulseData:
         else:
             ignored_types[resource_type or "missing"] = ignored_types.get(resource_type or "missing", 0) + 1
 
+    exact_identity_index, hash_identity_index = _build_resource_identity_indexes(
+        {
+            **hosts,
+            **guests,
+            **containers,
+            **storages,
+            **physical_disks,
+        }
+    )
+
     raw_alerts = payload.get("activeAlerts")
     if isinstance(raw_alerts, list):
         alerts = []
         for item in raw_alerts:
             if isinstance(item, dict):
-                alerts.append(_alert_from_raw(item))
+                alerts.append(
+                    _alert_from_raw(
+                        item,
+                        {
+                            **hosts,
+                            **guests,
+                            **containers,
+                            **storages,
+                            **physical_disks,
+                        },
+                        exact_identity_index,
+                        hash_identity_index,
+                    )
+                )
             else:
                 stale.add("alerts")
     else:
@@ -391,6 +419,7 @@ def _resource_from_raw(
         resource_id=resource_id,
         canonical_id=canonical_id,
         aliases=tuple(_canonical_aliases(raw)),
+        identity_keys=tuple(_resource_identity_keys(raw, resource_id, canonical_id, _canonical_aliases(raw))),
         name=_string(raw.get("displayName")) or _string(raw.get("name")) or canonical_id,
         type=resource_type,
         status=_string(raw.get("status")),
@@ -554,13 +583,100 @@ def _infrastructure_issues(payload: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _alert_from_raw(raw: dict[str, Any]) -> PulseAlert:
+def _resource_identity_keys(
+    raw: dict[str, Any],
+    resource_id: str,
+    canonical_id: str,
+    aliases: list[str],
+) -> list[str]:
+    """Sammelt alle im Payload bekannten Kennungen einer Ressource."""
+
+    keys = [canonical_id, resource_id, *aliases]
+    metrics_target = raw.get("metricsTarget")
+    if isinstance(metrics_target, dict):
+        value = _string(metrics_target.get("resourceId"))
+        if value:
+            keys.append(value)
+    elif isinstance(metrics_target, str):
+        keys.append(metrics_target)
+
+    docker = raw.get("docker")
+    if isinstance(docker, dict):
+        container_id = _string(docker.get("containerId"))
+        agent_id = _string(docker.get("agentId"))
+        if container_id:
+            keys.append(container_id)
+        if agent_id and container_id:
+            keys.append(f"docker:{agent_id}/{container_id}")
+
+    seen: set[str] = set()
+    return [key for key in keys if key and not (key in seen or seen.add(key))]
+
+
+def _build_resource_identity_indexes(
+    resources: dict[str, PulseResource],
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Baut exakte und Hash-Fallback-Indizes ohne mehrdeutige Treffer."""
+
+    exact_candidates: dict[str, set[str]] = {}
+    hash_candidates: dict[str, set[str]] = {}
+    for resource in resources.values():
+        for key in resource.identity_keys:
+            exact_candidates.setdefault(key, set()).add(resource.canonical_id)
+            normalized = _normalized_identity_key(key)
+            if normalized:
+                hash_candidates.setdefault(normalized, set()).add(resource.canonical_id)
+
+    exact_index = {key: next(iter(ids)) for key, ids in exact_candidates.items() if len(ids) == 1}
+    hash_index = {key: next(iter(ids)) for key, ids in hash_candidates.items() if len(ids) == 1}
+    return exact_index, hash_index
+
+
+def _normalized_identity_key(value: str | None) -> str | None:
+    """Reduziert heterogene Pulse-IDs auf den stabilen Hash-Anteil."""
+
+    if not value:
+        return None
+    tail = value.rsplit("/", 1)[-1]
+    if ":" in tail:
+        tail = tail.split(":", 1)[1]
+    return tail or None
+
+
+def _resolve_alert_resource_id(
+    resource_id: str | None,
+    exact_identity_index: dict[str, str],
+    hash_identity_index: dict[str, str],
+) -> str | None:
+    if resource_id is None:
+        return None
+    if resource_id in exact_identity_index:
+        return exact_identity_index[resource_id]
+    normalized = _normalized_identity_key(resource_id)
+    if normalized is None:
+        return None
+    return hash_identity_index.get(normalized)
+
+
+def _alert_from_raw(
+    raw: dict[str, Any],
+    resources: dict[str, PulseResource],
+    exact_identity_index: dict[str, str],
+    hash_identity_index: dict[str, str],
+) -> PulseAlert:
+    raw_resource_id = _string(raw.get("resourceId"))
+    resolved_resource_id = _resolve_alert_resource_id(raw_resource_id, exact_identity_index, hash_identity_index)
+    resolved_resource = resources.get(resolved_resource_id or "")
     return PulseAlert(
         alert_id=_string(raw.get("id")) or "unknown",
         level=_string(raw.get("level")),
         type=_string(raw.get("type")),
-        resource_id=_string(raw.get("resourceId")),
+        resource_id=raw_resource_id,
         resource_name=_string(raw.get("resourceName")),
+        message=_string(raw.get("message")),
+        since=parse_pulse_time(raw.get("startTime")),
+        resolved_resource_id=resolved_resource_id,
+        resolved_host_id=resolved_resource.host_canonical_id if resolved_resource else None,
         acknowledged=bool(raw.get("acknowledged")),
     )
 

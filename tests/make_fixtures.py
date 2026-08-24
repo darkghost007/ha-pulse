@@ -21,7 +21,7 @@ RESOURCE_KEYS = {
     "sourceType", "sources", "status", "parentId", "parentName", "uptime",
     "temperature", "childCount",
 }
-ALERT_KEYS = {"id", "level", "type", "resourceId", "resourceName", "acknowledged"}
+ALERT_KEYS = {"id", "level", "type", "resourceId", "resourceName", "acknowledged", "message", "startTime"}
 
 # Wie viele Ressourcen je Typ ins Fixture wandern.
 SAMPLE_PER_TYPE = {
@@ -133,6 +133,44 @@ def clean_health_block(block: object) -> dict | None:
     return out or None
 
 
+def clean_metrics_target(block: object, p: Pseudonymizer) -> dict | None:
+    if not isinstance(block, dict):
+        return None
+    out = {}
+    if isinstance(block.get("resourceId"), str):
+        out["resourceId"] = p.get(block["resourceId"], "res")
+    return out or None
+
+
+def clean_resource_reference(value: str | None, p: Pseudonymizer) -> str | None:
+    if value is None:
+        return None
+    if value.startswith("docker:") and "/" in value:
+        agent_id, container_id = value.split(":", 1)[1].rsplit("/", 1)
+        return f"docker:{p.get(agent_id, 'docker-agent')}/{p.get(container_id, 'docker-container')}"
+    return p.get(value, "res")
+
+
+def clean_docker(block: object, p: Pseudonymizer) -> dict | None:
+    cleaned = clean_health_block(block)
+    out = dict(cleaned or {})
+    if isinstance(block, dict):
+        if isinstance(block.get("containerId"), str):
+            out["containerId"] = p.get(block["containerId"], "docker-container")
+        if isinstance(block.get("agentId"), str):
+            out["agentId"] = p.get(block["agentId"], "docker-agent")
+    return out or None
+
+
+def clean_alert(alert: dict, p: Pseudonymizer) -> dict:
+    cleaned = {key: alert[key] for key in ALERT_KEYS if key in alert}
+    cleaned["id"] = p.get(cleaned.get("id"), "alert")
+    cleaned["resourceId"] = clean_resource_reference(cleaned.get("resourceId"), p)
+    cleaned["resourceName"] = p.get(cleaned.get("resourceName"), "host")
+    cleaned["message"] = p.get(cleaned.get("message"), "alert-text")
+    return cleaned
+
+
 def clean_resource(res: dict, p: Pseudonymizer) -> dict:
     out: dict = {}
     for key in RESOURCE_KEYS:
@@ -164,7 +202,7 @@ def clean_resource(res: dict, p: Pseudonymizer) -> dict:
     disk_io = clean_rates(res.get("diskIO"), {"readRate", "writeRate"})
     if disk_io is not None:
         out["diskIO"] = disk_io
-    docker = clean_health_block(res.get("docker"))
+    docker = clean_docker(res.get("docker"), p)
     if docker is not None:
         out["docker"] = docker
     platform_data = clean_health_block(res.get("platformData"))
@@ -173,6 +211,9 @@ def clean_resource(res: dict, p: Pseudonymizer) -> dict:
     tags = clean_tags(res.get("tags"), p)
     if tags is not None:
         out["tags"] = tags
+    metrics_target = clean_metrics_target(res.get("metricsTarget"), p)
+    if metrics_target is not None:
+        out["metricsTarget"] = metrics_target
 
     canonical = res.get("canonicalIdentity")
     if isinstance(canonical, dict):
@@ -265,11 +306,7 @@ def main(source: Path, dest: Path) -> None:
 
     alerts = []
     for alert in state.get("activeAlerts", [])[:4]:
-        cleaned = {k: alert[k] for k in ALERT_KEYS if k in alert}
-        cleaned["id"] = p.get(cleaned.get("id"), "alert")
-        cleaned["resourceId"] = p.get(cleaned.get("resourceId"), "res")
-        cleaned["resourceName"] = p.get(cleaned.get("resourceName"), "host")
-        alerts.append(cleaned)
+        alerts.append(clean_alert(alert, p))
 
     fixture = {
         "resources": picked,
