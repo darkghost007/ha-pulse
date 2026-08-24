@@ -15,6 +15,8 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
+    ALERT_TYPE_LABELS,
+    STATUS_LABELS,
     CONF_CRITICAL_HOSTS,
     CONF_CRITICAL_HOSTS_MODE,
     CONF_ALIAS_MAP,
@@ -182,18 +184,23 @@ class PulseInfrastructureProblemBinarySensor(PulseEntity, BinarySensorEntity):
         if data is None:
             return {}
         critical_hosts = self._critical_host_ids()
+        # Kurze Zeichenketten statt Dictionaries: native Clients rendern
+        # Attributlisten flach aneinandergehängt.
         triggering_hosts = [
-            {"id": host_id, "name": data.hosts[host_id].name if host_id in data.hosts else host_id}
+            f"{data.hosts[host_id].name if host_id in data.hosts else host_id}"
+            f" · {STATUS_LABELS['missing'] if host_id not in data.hosts else STATUS_LABELS.get(data.hosts[host_id].status or 'offline', 'offline')}"
             for host_id in sorted(critical_hosts)
             if host_id not in data.hosts or not data.hosts[host_id].is_host_online
         ]
         triggering_alerts = [
-            {
-                "id": alert.alert_id,
-                "level": alert.level,
-                "type": alert.type,
-                "resource_id": alert.resource_id,
-            }
+            " · ".join(
+                part
+                for part in (
+                    alert.resource_name,
+                    ALERT_TYPE_LABELS.get(alert.type, alert.type),
+                )
+                if part
+            )
             for alert in data.alerts
             if alert.is_critical
         ]

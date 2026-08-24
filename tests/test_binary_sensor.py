@@ -93,9 +93,7 @@ def test_infrastructure_problem_uses_persisted_known_hosts_after_restart() -> No
     sensor = _problem_sensor(data, options={CONF_KNOWN_HOSTS: ["agent:missing"]})
 
     assert sensor.is_on is True
-    assert sensor.extra_state_attributes["triggering_hosts"] == [
-        {"id": "agent:missing", "name": "agent:missing"}
-    ]
+    assert sensor.extra_state_attributes["triggering_hosts"] == ["agent:missing · nicht gemeldet"]
 
 
 def test_infrastructure_problem_remaps_persisted_known_hosts() -> None:
@@ -109,7 +107,7 @@ def test_infrastructure_problem_remaps_persisted_known_hosts() -> None:
     )
 
     assert sensor.is_on is True
-    assert sensor.extra_state_attributes["triggering_hosts"] == [{"id": "new-id", "name": "new-id"}]
+    assert sensor.extra_state_attributes["triggering_hosts"] == ["new-id · nicht gemeldet"]
 
 
 def test_acknowledged_critical_alert_still_counts(fixture_state: dict) -> None:

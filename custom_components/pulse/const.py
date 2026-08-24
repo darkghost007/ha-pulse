@@ -64,3 +64,14 @@ ALERT_TYPE_LABELS: dict[str, str] = {
     "node-offline": "offline",
     "guest-offline": "offline",
 }
+
+# Kurzbezeichnungen für Ressourcen-Zustände, analog zu ALERT_TYPE_LABELS.
+STATUS_LABELS: dict[str, str] = {
+    "online": "online",
+    "offline": "offline",
+    "degraded": "beeinträchtigt",
+    "running": "läuft",
+    "stopped": "gestoppt",
+    "unknown": "unbekannt",
+    "missing": "nicht gemeldet",
+}

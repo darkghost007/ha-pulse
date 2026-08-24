@@ -21,6 +21,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     ALERT_TYPE_LABELS,
+    STATUS_LABELS,
     CONF_ALIAS_MAP,
     CONF_CRITICAL_HOSTS,
     CONF_CRITICAL_HOSTS_MODE,
@@ -529,7 +530,17 @@ class PulseSummarySensor(PulseEntity, SensorEntity):
         if data is None:
             return None
         if self.entity_description.key == "warnings":
-            return _alert_list_attributes(data, _warning_alerts(data))
+            # Der Zähler summiert Warnalarme UND degradierte Hosts. Ohne die
+            # Hosts erklärt die Detailliste weniger Einträge, als der Wert zeigt.
+            attrs = _alert_list_attributes(data, _warning_alerts(data))
+            attrs["alerts"] = [
+                *attrs["alerts"],
+                *(
+                    _resource_attribute(host, host.status or "degraded")
+                    for host in _warning_hosts(data)
+                ),
+            ]
+            return attrs
         if self.entity_description.key == "critical_alerts":
             return _alert_list_attributes(data, _critical_alerts(data))
         if self.entity_description.key != "overall_status":
@@ -742,31 +753,22 @@ def _host_health_attributes(data: PulseData, host_id: str) -> dict[str, Any]:
         data,
         [alert for alert in _host_alerts(data, host_id) if alert.level in {"warning", "critical"}],
     )
-    triggering_resources: list[dict[str, Any]] = []
+    triggering_resources: list[str] = []
     host = data.hosts.get(host_id)
     if "resources" not in data.stale:
         if host is None:
-            triggering_resources.append(
-                {"id": host_id, "name": host_id, "type": "agent", "status": "missing", "reason": "offline"}
-            )
+            triggering_resources.append(f"{host_id} · {STATUS_LABELS['missing']}")
         elif not host.is_host_online:
             triggering_resources.append(_resource_attribute(host, "offline"))
         elif not host.is_host_healthy:
             triggering_resources.append(_resource_attribute(host, "degraded"))
         triggering_resources.extend(
-            _resource_attribute(storage, "pool_not_online")
+            f"Pool {storage.name} · {STATUS_LABELS.get(storage.status or 'unknown', storage.status)}"
             for storage in _host_storages(data, host_id)
             if storage.status != "online"
         )
         triggering_resources.extend(
-            {
-                "id": disk.canonical_id,
-                "name": disk.name,
-                "type": disk.type,
-                "health": disk.disk_health,
-                "storageState": disk.disk_storage_state,
-                "reason": "disk_health",
-            }
+            f"Platte {disk.name} · {disk.disk_health or STATUS_LABELS['unknown']}"
             for disk in _host_disks(data, host_id)
             if _disk_problem_severity(disk) is not None
         )
@@ -779,24 +781,29 @@ def _host_health_attributes(data: PulseData, host_id: str) -> dict[str, Any]:
     }
 
 
-def _resource_attribute(resource: PulseResource, reason: str) -> dict[str, Any]:
-    return {
-        "id": resource.canonical_id,
-        "name": resource.name,
-        "type": resource.type,
-        "status": resource.status,
-        "reason": reason,
-    }
+def _resource_attribute(resource: PulseResource, reason: str) -> str:
+    """Eine auslösende Ressource als kurze Zeile.
+
+    Wie bei den Alarmen bewusst eine Zeichenkette: native Clients rendern
+    Attributlisten flach, verschachtelte Strukturen werden dort zur Textwand.
+    Die kanonische ID entfällt — sie ist für den Nutzer bedeutungslos und
+    steht bei Bedarf in den Diagnosedaten.
+    """
+    label = STATUS_LABELS.get(reason, reason)
+    return f"{resource.name or resource.canonical_id} · {label}"
 
 
-def _problem_hosts(data: PulseData, entry: ConfigEntry) -> list[dict[str, str]]:
+def _problem_hosts(data: PulseData, entry: ConfigEntry) -> list[str]:
     if "resources" in data.stale:
         return []
-    output = []
+    output: list[str] = []
     for host_id in sorted(_critical_host_ids(data, entry)):
         host = data.hosts.get(host_id)
-        if host is None or not host.is_host_online:
-            output.append({"id": host_id, "name": host.name if host is not None else host_id})
+        if host is None:
+            # Bekannter Host, der im Payload fehlt — nicht dasselbe wie offline.
+            output.append(f"{host_id} · {STATUS_LABELS['missing']}")
+        elif not host.is_host_online:
+            output.append(_resource_attribute(host, host.status or "offline"))
     return output
 
 
@@ -834,9 +841,12 @@ def _overall_status(data: PulseData, entry: ConfigEntry) -> str | None:
     return OVERALL_STATUS_OK
 
 
-def _triggering_hosts(data: PulseData, entry: ConfigEntry) -> list[dict[str, str]]:
+def _triggering_hosts(data: PulseData, entry: ConfigEntry) -> list[str]:
     hosts = _problem_hosts(data, entry)
-    hosts.extend({"id": host.canonical_id, "name": host.name, "status": host.status or "unknown"} for host in _warning_hosts(data))
+    hosts.extend(
+        _resource_attribute(host, host.status or "unknown")
+        for host in _warning_hosts(data)
+    )
     return hosts
 
 
@@ -900,23 +910,28 @@ def _host_temperature_value(data: PulseData, host_id: str) -> float | None:
 
 
 def _host_disk_temperature_value(data: PulseData, host_id: str) -> float | None:
+    """Wärmste gemessene Platte des Hosts.
+
+    Rechnet bewusst auf den Rohwerten, nicht auf der Anzeigeliste — sonst hinge
+    die Messgröße an der Formatierung.
+    """
     values = [
-        item["temperature"]
-        for item in _host_disk_temperatures(data, host_id)
-        if item["temperature"] is not None
+        disk.temperature
+        for disk in _host_disks(data, host_id)
+        if not disk.disk_spun_down and _valid_temperature(disk.temperature)
     ]
     if not values:
         return None
     return round(max(values), 1)
 
 
-def _host_disk_temperatures(data: PulseData, host_id: str) -> list[dict[str, Any]]:
-    output = []
+def _host_disk_temperatures(data: PulseData, host_id: str) -> list[str]:
+    output: list[str] = []
     for disk in sorted(_host_disks(data, host_id), key=lambda item: item.name):
         if disk.disk_spun_down:
-            output.append({"name": disk.name, "temperature": None, "spun_down": True})
+            output.append(f"{disk.name} · schläft")
         elif _valid_temperature(disk.temperature):
-            output.append({"name": disk.name, "temperature": round(disk.temperature, 1), "spun_down": False})
+            output.append(f"{disk.name} · {round(disk.temperature, 1)} °C")
     return output
 
 
@@ -924,9 +939,10 @@ def _host_disks(data: PulseData, host_id: str) -> list[PulseResource]:
     return [disk for disk in data.physical_disks.values() if disk.host_canonical_id == host_id]
 
 
-def _host_disk_problem_details(data: PulseData, host_id: str) -> list[dict[str, Any]]:
+def _host_disk_problem_details(data: PulseData, host_id: str) -> list[str]:
     return [
-        {"name": disk.name, "health": disk.disk_health, "storageState": disk.disk_storage_state}
+        f"{disk.name} · {disk.disk_health or STATUS_LABELS['unknown']}"
+        f" · {STATUS_LABELS.get(disk.disk_storage_state or 'unknown', disk.disk_storage_state)}"
         for disk in sorted(_host_disks(data, host_id), key=lambda item: item.name)
         if _disk_problem_severity(disk) is not None
     ]
@@ -952,9 +968,9 @@ def _host_disk_life_remaining(data: PulseData, host_id: str) -> float | None:
     return min(values)
 
 
-def _host_disk_life_details(data: PulseData, host_id: str) -> list[dict[str, Any]]:
+def _host_disk_life_details(data: PulseData, host_id: str) -> list[str]:
     return [
-        {"name": disk.name, "life_remaining": disk.disk_wearout}
+        f"{disk.name} · {disk.disk_wearout} % Restlebensdauer"
         for disk in sorted(_host_disks(data, host_id), key=lambda item: item.name)
         if disk.disk_wearout is not None
     ]

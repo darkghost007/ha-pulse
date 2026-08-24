@@ -284,9 +284,7 @@ def test_overall_status_and_warning_counters_use_degraded_as_warning(fixture_sta
     assert overall.native_value == OVERALL_STATUS_WARNING
     assert warnings.native_value == 1
     assert critical.native_value == 0
-    assert overall.extra_state_attributes["triggering_hosts"] == [
-        {"id": "canon-57", "name": "host-1", "status": "degraded"}
-    ]
+    assert overall.extra_state_attributes["triggering_hosts"] == ["host-1 · beeinträchtigt"]
 
 
 def test_overall_status_problem_attributes_include_critical_alerts(fixture_state: dict) -> None:
@@ -346,12 +344,12 @@ def test_host_health_reports_ok_warning_problem_and_unknown() -> None:
     degraded = _health_payload("degraded")
     warning = _host_health(degraded, "host-1", entry)
     assert warning.native_value == "warning"
-    assert warning.extra_state_attributes["triggering_resources"][0]["reason"] == "degraded"
+    assert warning.extra_state_attributes["triggering_resources"] == ["host-1 · beeinträchtigt"]
 
     pool_warning = _health_payload("online", storage_status="warning")
     pool = _host_health(pool_warning, "host-1", entry)
     assert pool.native_value == "warning"
-    assert pool.extra_state_attributes["triggering_resources"][0]["reason"] == "pool_not_online"
+    assert pool.extra_state_attributes["triggering_resources"][0].startswith("Pool ")
 
     critical = _health_payload("online", alert_level="critical", alert_resource_id="res-vm")
     problem = _host_health(critical, "host-1", entry)
@@ -361,7 +359,7 @@ def test_host_health_reports_ok_warning_problem_and_unknown() -> None:
     missing = _host_health({"resources": [], "activeAlerts": []}, "host-1", entry)
     assert missing.available is True
     assert missing.native_value == "problem"
-    assert missing.extra_state_attributes["triggering_resources"][0]["status"] == "missing"
+    assert missing.extra_state_attributes["triggering_resources"] == ["host-1 · nicht gemeldet"]
 
     stale = _host_health({"activeAlerts": []}, "host-1", entry)
     assert stale.available is True
@@ -400,10 +398,7 @@ def test_host_temperature_is_not_influenced_by_disk_values() -> None:
     assert entity.extra_state_attributes is None
     assert disk_entity.native_value == 62.4
     assert disk_entity.extra_state_attributes == {
-        "disks": [
-            {"name": "disk-1", "temperature": 27.0, "spun_down": False},
-            {"name": "disk-hot", "temperature": 62.4, "spun_down": False},
-        ]
+        "disks": ["disk-1 · 27.0 °C", "disk-hot · 62.4 °C"]
     }
 
 
@@ -421,10 +416,7 @@ def test_disk_temperature_uses_disks_below_skipped_storage_member() -> None:
     assert data.removed_resource_ids == {"member-1", "disk-cool", "disk-hot", "disk-zero", "disk-missing"}
     assert entity.native_value == 37.0
     assert entity.extra_state_attributes == {
-        "disks": [
-            {"name": "disk-cool", "temperature": 28.0, "spun_down": False},
-            {"name": "disk-hot", "temperature": 37.0, "spun_down": False},
-        ]
+        "disks": ["disk-cool · 28.0 °C", "disk-hot · 37.0 °C"]
     }
 
 
@@ -540,28 +532,14 @@ def test_disk_health_flows_into_host_health_and_disk_problem_sensor() -> None:
 
     assert health.native_value == "problem"
     assert health.extra_state_attributes["triggering_resources"] == [
-        {
-            "id": "disk-failed",
-            "name": "disk-failed",
-            "type": "physical_disk",
-            "health": "FAILED",
-            "storageState": "online",
-            "reason": "disk_health",
-        },
-        {
-            "id": "disk-warning",
-            "name": "disk-warning",
-            "type": "physical_disk",
-            "health": "PASSED",
-            "storageState": "degraded",
-            "reason": "disk_health",
-        },
+        "Platte disk-failed · FAILED",
+        "Platte disk-warning · PASSED",
     ]
     assert disk_problems.native_value == 2
     assert disk_problems.extra_state_attributes == {
         "disks": [
-            {"name": "disk-failed", "health": "FAILED", "storageState": "online"},
-            {"name": "disk-warning", "health": "PASSED", "storageState": "degraded"},
+            "disk-failed · FAILED · online",
+            "disk-warning · PASSED · beeinträchtigt",
         ]
     }
     assert disk_problems.entity_category is EntityCategory.DIAGNOSTIC
@@ -580,9 +558,9 @@ def test_disk_temperature_marks_spun_down_disks_without_counting_them() -> None:
     assert disk_temperature.native_value == 37.0
     assert disk_temperature.extra_state_attributes == {
         "disks": [
-            {"name": "disk-failed", "temperature": 31.0, "spun_down": False},
-            {"name": "disk-sleeping", "temperature": None, "spun_down": True},
-            {"name": "disk-warning", "temperature": 37.0, "spun_down": False},
+            "disk-failed · 31.0 °C",
+            "disk-sleeping · schläft",
+            "disk-warning · 37.0 °C",
         ]
     }
 
@@ -600,8 +578,8 @@ def test_disk_life_remaining_uses_lowest_reported_remaining_life() -> None:
     assert life.native_value == 73.0
     assert life.extra_state_attributes == {
         "disks": [
-            {"name": "disk-failed", "life_remaining": 96.0},
-            {"name": "disk-warning", "life_remaining": 73.0},
+            "disk-failed · 96.0 % Restlebensdauer",
+            "disk-warning · 73.0 % Restlebensdauer",
         ]
     }
 
@@ -1370,3 +1348,50 @@ def _host_payload(primary_id: str, *, aliases: list[str]) -> dict:
         "activeAlerts": [],
         "lastUpdate": "2026-08-24T10:00:00Z",
     }
+
+
+def test_warning_counter_attributes_explain_every_counted_item(fixture_state: dict) -> None:
+    """Zähler und Detailliste müssen dieselbe Menge beschreiben.
+
+    Der Warnungszähler summiert Warnalarme und degradierte Hosts. Erklärt die
+    Detailliste nur die Alarme, kann der Nutzer die Differenz nicht zuordnen.
+    """
+    data = normalize_state(fixture_state)
+    entry = _entry()
+    coordinator = _coordinator(entry, data)
+    description = next(item for item in sensor.SUMMARY_SENSOR_DESCRIPTIONS if item.key == "warnings")
+    warnings = sensor.PulseSummarySensor(coordinator, description)
+
+    assert warnings.native_value == len(warnings.extra_state_attributes["alerts"])
+
+
+def test_rendered_list_attributes_contain_only_strings(fixture_state: dict) -> None:
+    """Listenattribute dürfen keine Dictionaries enthalten.
+
+    Native Clients wie Vulpo rendern Attributlisten flach aneinandergehängt;
+    verschachtelte Strukturen werden dort zu einer unlesbaren Textwand.
+    """
+    data = normalize_state(fixture_state)
+    entry = _entry(options={CONF_KNOWN_HOSTS: list(data.hosts)})
+    coordinator = _coordinator(entry, data)
+
+    entities: list[Any] = [
+        sensor.PulseSummarySensor(coordinator, description)
+        for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS
+    ]
+    for host_id in data.hosts:
+        entities.extend(
+            sensor.PulseHostSensor(coordinator, host_id, description)
+            for description in sensor.HOST_SENSOR_DESCRIPTIONS
+        )
+
+    checked = 0
+    for entity in entities:
+        for key, value in (entity.extra_state_attributes or {}).items():
+            if not isinstance(value, list):
+                continue
+            checked += 1
+            assert all(isinstance(item, str) for item in value), (
+                f"{type(entity).__name__}.{key} enthält Nicht-Strings: {value[:2]}"
+            )
+    assert checked > 0, "kein Listenattribut geprüft — Test wäre wirkungslos"
