@@ -1,12 +1,14 @@
 {
   "domain": "pulse",
   "name": "Pulse",
-  "codeowners": [],
+  "codeowners": [
+    "@darkghost007"
+  ],
   "config_flow": true,
-  "documentation": "https://github.com/max/ha-pulse",
+  "documentation": "https://github.com/darkghost007/ha-pulse",
   "integration_type": "hub",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/max/ha-pulse/issues",
+  "issue_tracker": "https://github.com/darkghost007/ha-pulse/issues",
   "requirements": [],
   "version": "0.1.0"
 }
