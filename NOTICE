@@ -1,0 +1,16 @@
+Diese Integration ist ein eigenständiges Projekt und wird nicht von Pulse
+(rcourtman/Pulse) herausgegeben, betreut oder unterstützt.
+
+Das Pulse-Logo in `images/` und `icon.png` stammt aus dem Repository
+rcourtman/Pulse (Datei `docs/images/pulse-logo.png`) und ist Eigentum seiner
+Urheber. Das Repository steht unter der MIT-Lizenz:
+
+    https://github.com/rcourtman/Pulse/blob/main/LICENSE
+
+Die MIT-Lizenz erlaubt die Weiterverwendung der Dateien, überträgt jedoch
+ausdrücklich keine Marken- oder Namensrechte. Das Logo wird hier ausschließlich
+verwendet, um kenntlich zu machen, mit welchem Dienst diese Integration spricht.
+Wenn die Urheber von Pulse die Verwendung nicht wünschen, wird sie auf Hinweis
+hin entfernt.
+
+Der übrige Inhalt dieses Repositories steht unter der MIT-Lizenz, siehe LICENSE.

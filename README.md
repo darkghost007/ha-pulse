@@ -1,3 +1,5 @@
+<img src="images/pulse-logo.png" alt="Pulse" width="96" align="right">
+
 # Pulse für Home Assistant
 
 Custom-Integration für [Pulse](https://github.com/rcourtman/Pulse). Die
@@ -7,7 +9,7 @@ Devices und Entities ab.
 
 ## Status
 
-Version 0.5.0 für Pulse 6.3.1. Die Integration ist read-only und nutzt
+Version 0.7.0 für Pulse 6.3.1. Die Integration ist read-only und nutzt
 den Header `X-API-Token` mit einem Token, der nur den Scope `monitoring:read`
 benötigt.
 
@@ -98,3 +100,21 @@ uv pip install --python .venv/bin/python homeassistant==2026.8.3 pytest pytest-h
 
 Fixtures unter `tests/fixtures/` sind synthetisch. Echte Pulse-Dumps gehören nie
 ins Repository.
+
+## Lizenz
+
+MIT — siehe [LICENSE](LICENSE).
+
+## Logo und Zugehörigkeit
+
+Dieses Projekt ist **nicht** von den Entwicklern von Pulse herausgegeben oder
+unterstützt. Es ist eine unabhängige Integration, die die öffentliche Pulse-API
+liest.
+
+Das verwendete Logo stammt aus
+[rcourtman/Pulse](https://github.com/rcourtman/Pulse/blob/main/docs/images/pulse-logo.png)
+und gehört seinen Urhebern. Pulse steht unter der
+[MIT-Lizenz](https://github.com/rcourtman/Pulse/blob/main/LICENSE), die die
+Weiterverwendung erlaubt, aber keine Marken- oder Namensrechte überträgt. Das
+Logo dient hier allein der Kenntlichmachung, mit welchem Dienst die Integration
+spricht. Siehe [NOTICE](NOTICE).
