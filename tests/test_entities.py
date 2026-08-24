@@ -11,7 +11,7 @@ import pytest
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
-from homeassistant.const import CONF_HOST, STATE_UNAVAILABLE
+from homeassistant.const import CONF_HOST, STATE_UNAVAILABLE, UnitOfDataRate
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -117,8 +117,8 @@ async def test_entity_counts_and_metadata_from_fixture(fixture_state: dict) -> N
     await sensor.async_setup_entry(SimpleNamespace(), entry, added.extend)
     await binary_sensor.async_setup_entry(SimpleNamespace(), entry, added.extend)
 
-    assert len(added) == 74
-    assert len({entity.unique_id for entity in added}) == 74
+    assert len(added) == 78
+    assert len({entity.unique_id for entity in added}) == 78
 
     by_unique = {entity.unique_id: entity for entity in added}
     host_id = next(iter(data.hosts))
@@ -173,7 +173,7 @@ async def test_include_docker_containers_changes_entity_count(fixture_state: dic
     await sensor.async_setup_entry(SimpleNamespace(), entry, added.extend)
     await binary_sensor.async_setup_entry(SimpleNamespace(), entry, added.extend)
 
-    assert len(added) == 86
+    assert len(added) == 90
     assert sum(1 for entity in added if "_canon-10_" in entity.unique_id) == 4
 
 
@@ -400,8 +400,8 @@ def test_host_temperature_is_not_influenced_by_disk_values() -> None:
     assert disk_entity.native_value == 62.4
     assert disk_entity.extra_state_attributes == {
         "disks": [
-            {"name": "disk-1", "temperature": 27.0},
-            {"name": "disk-hot", "temperature": 62.4},
+            {"name": "disk-1", "temperature": 27.0, "spun_down": False},
+            {"name": "disk-hot", "temperature": 62.4, "spun_down": False},
         ]
     }
 
@@ -421,8 +421,8 @@ def test_disk_temperature_uses_disks_below_skipped_storage_member() -> None:
     assert entity.native_value == 37.0
     assert entity.extra_state_attributes == {
         "disks": [
-            {"name": "disk-cool", "temperature": 28.0},
-            {"name": "disk-hot", "temperature": 37.0},
+            {"name": "disk-cool", "temperature": 28.0, "spun_down": False},
+            {"name": "disk-hot", "temperature": 37.0, "spun_down": False},
         ]
     }
 
@@ -522,6 +522,182 @@ def test_host_health_and_counts_use_transitive_host_parent() -> None:
     ]
     assert containers_running.native_value == 1
     assert guests_stopped.native_value == 1
+
+
+def test_disk_health_flows_into_host_health_and_disk_problem_sensor() -> None:
+    data = normalize_state(_disk_health_payload())
+    entry = _entry(options={CONF_KNOWN_HOSTS: ["host-1"]})
+    coordinator = _coordinator(entry, data)
+    health = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "health"),
+    )
+    disk_problems = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "disk_problems"),
+    )
+
+    assert health.native_value == "problem"
+    assert health.extra_state_attributes["triggering_resources"] == [
+        {
+            "id": "disk-failed",
+            "name": "disk-failed",
+            "type": "physical_disk",
+            "health": "FAILED",
+            "storageState": "online",
+            "reason": "disk_health",
+        },
+        {
+            "id": "disk-warning",
+            "name": "disk-warning",
+            "type": "physical_disk",
+            "health": "PASSED",
+            "storageState": "degraded",
+            "reason": "disk_health",
+        },
+    ]
+    assert disk_problems.native_value == 2
+    assert disk_problems.extra_state_attributes == {
+        "disks": [
+            {"name": "disk-failed", "health": "FAILED", "storageState": "online"},
+            {"name": "disk-warning", "health": "PASSED", "storageState": "degraded"},
+        ]
+    }
+    assert disk_problems.entity_category is EntityCategory.DIAGNOSTIC
+
+
+def test_disk_temperature_marks_spun_down_disks_without_counting_them() -> None:
+    data = normalize_state(_disk_health_payload())
+    entry = _entry()
+    coordinator = _coordinator(entry, data)
+    disk_temperature = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "disk_temperature"),
+    )
+
+    assert disk_temperature.native_value == 37.0
+    assert disk_temperature.extra_state_attributes == {
+        "disks": [
+            {"name": "disk-failed", "temperature": 31.0, "spun_down": False},
+            {"name": "disk-sleeping", "temperature": None, "spun_down": True},
+            {"name": "disk-warning", "temperature": 37.0, "spun_down": False},
+        ]
+    }
+
+
+def test_disk_life_remaining_uses_lowest_reported_remaining_life() -> None:
+    data = normalize_state(_disk_health_payload())
+    entry = _entry()
+    coordinator = _coordinator(entry, data)
+    life = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "disk_life_remaining"),
+    )
+
+    assert life.native_value == 73.0
+    assert life.extra_state_attributes == {
+        "disks": [
+            {"name": "disk-failed", "life_remaining": 96.0},
+            {"name": "disk-warning", "life_remaining": 73.0},
+        ]
+    }
+
+
+@pytest.mark.asyncio
+async def test_host_diagnostic_rate_and_agent_sensors_are_created_only_with_values() -> None:
+    data = normalize_state(_host_diagnostics_payload())
+    entry = _entry(options={CONF_KNOWN_HOSTS: ["host-1", "host-2"]})
+    coordinator = _coordinator(entry, data)
+    entry.runtime_data = coordinator
+    added = []
+
+    await sensor.async_setup_entry(SimpleNamespace(), entry, added.extend)
+
+    by_unique = {entity.unique_id: entity for entity in added}
+    assert by_unique["entry-1_host-1_network_rx_rate"].native_value == 2414
+    assert by_unique["entry-1_host-1_network_rx_rate"].device_class is SensorDeviceClass.DATA_RATE
+    assert by_unique["entry-1_host-1_network_rx_rate"].native_unit_of_measurement == UnitOfDataRate.BYTES_PER_SECOND
+    assert by_unique["entry-1_host-1_network_rx_rate"].state_class is SensorStateClass.MEASUREMENT
+    assert by_unique["entry-1_host-1_network_rx_rate"].entity_category is EntityCategory.DIAGNOSTIC
+    assert by_unique["entry-1_host-1_disk_write_rate"].native_value == 456
+    assert by_unique["entry-1_host-1_agent_version"].native_value == "6.3.1"
+    assert by_unique["entry-1_host-1_agent_last_report"].device_class is SensorDeviceClass.TIMESTAMP
+    assert "entry-1_host-2_network_rx_rate" not in by_unique
+    assert "entry-1_host-2_agent_version" not in by_unique
+
+
+def test_container_problems_use_docker_health_and_oom_fields() -> None:
+    payload = _nested_disk_payload()
+    payload["resources"].extend(
+        [
+            _resource("container-1", "app-container", "res-container-1", "running", parent_id="res-member")
+            | {"docker": {"health": "unhealthy"}},
+            _resource("container-2", "app-container", "res-container-2", "running", parent_id="res-member")
+            | {"platformData": {"oomKilled": True}},
+            _resource("container-3", "app-container", "res-container-3", "running", parent_id="res-member")
+            | {"docker": {"health": "healthy"}},
+        ]
+    )
+    data = normalize_state(payload)
+    entry = _entry()
+    coordinator = _coordinator(entry, data)
+    problems = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "container_problems"),
+    )
+
+    assert problems.native_value == 2
+
+
+def test_pulse_infrastructure_health_flows_into_overall_status() -> None:
+    data = normalize_state(
+        {
+            "resources": [_resource("host-1", "agent", "res-host", "online")],
+            "activeAlerts": [],
+            "connectedInfrastructure": [
+                {"name": "infra-ok", "healthStatus": "online", "lastSeen": "2026-08-24T10:00:00Z", "version": "6.3.1"},
+                {"name": "infra-warn", "healthStatus": "degraded", "lastSeen": "2026-08-24T10:00:00Z", "version": "6.3.0"},
+            ],
+        }
+    )
+    entry = _entry(options={CONF_KNOWN_HOSTS: ["host-1"]})
+    coordinator = _coordinator(entry, data)
+    overall = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "overall_status"),
+    )
+
+    assert overall.native_value == "warning"
+    assert overall.extra_state_attributes["infrastructure_issues"] == [
+        {
+            "name": "infra-warn",
+            "status": "degraded",
+            "last_seen": "2026-08-24T10:00:00Z",
+            "version": "6.3.0",
+            "problem": False,
+            "source": "connectedInfrastructure",
+        }
+    ]
+
+    data = normalize_state(
+        {
+            "resources": [_resource("host-1", "agent", "res-host", "online")],
+            "activeAlerts": [],
+            "connectionHealth": {"infra-down": False},
+        }
+    )
+    coordinator = _coordinator(entry, data)
+    overall = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "overall_status"),
+    )
+    assert overall.native_value == "problem"
+    assert overall.extra_state_attributes["infrastructure_issues"][0]["source"] == "connectionHealth"
 
 
 @pytest.mark.asyncio
@@ -680,10 +856,10 @@ def test_german_translations_use_requested_labels_and_enum_states() -> None:
     }
 
 
-def test_manifest_version_is_030() -> None:
+def test_manifest_version_is_040() -> None:
     manifest = json.loads((Path(__file__).parents[1] / "custom_components/pulse/manifest.json").read_text())
 
-    assert manifest["version"] == "0.3.0"
+    assert manifest["version"] == "0.4.0"
 
 
 def test_guest_without_disk_block_reports_unknown_disk(fixture_state: dict) -> None:
@@ -916,6 +1092,81 @@ def _nested_disk_payload() -> dict:
             | {"displayName": "disk-zero", "physicalDisk": {"temperature": 0}},
             _resource("disk-missing", "physical_disk", "res-disk-missing", "online", parent_id="res-member")
             | {"displayName": "disk-missing"},
+        ],
+        "activeAlerts": [],
+    }
+
+
+def _disk_health_payload() -> dict:
+    return {
+        "resources": [
+            _resource("host-1", "agent", "res-host", "online"),
+            _resource("member-1", "storage", "res-member", "online", parent_id="res-host")
+            | {
+                "displayName": "member-1",
+                "storage": {"type": "unraid-cache-pool"},
+                "tags": ["none"],
+                "disk": {"current": 95, "used": 950, "total": 1000, "free": 50},
+            },
+            _resource("disk-failed", "physical_disk", "res-disk-failed", "online", parent_id="res-member")
+            | {
+                "displayName": "disk-failed",
+                "physicalDisk": {
+                    "health": "FAILED",
+                    "storageState": "online",
+                    "temperature": 31,
+                    "spunDown": False,
+                    "wearout": 96,
+                },
+            },
+            _resource("disk-warning", "physical_disk", "res-disk-warning", "online", parent_id="res-member")
+            | {
+                "displayName": "disk-warning",
+                "physicalDisk": {
+                    "health": "PASSED",
+                    "storageState": "degraded",
+                    "temperature": 37,
+                    "spunDown": False,
+                    "wearout": 73,
+                },
+            },
+            _resource("disk-unknown", "physical_disk", "res-disk-unknown", "online", parent_id="res-member")
+            | {
+                "displayName": "disk-unknown",
+                "physicalDisk": {
+                    "health": "UNKNOWN",
+                    "storageState": "online",
+                    "temperature": 0,
+                    "spunDown": False,
+                    "wearout": -1,
+                },
+            },
+            _resource("disk-sleeping", "physical_disk", "res-disk-sleeping", "online", parent_id="res-member")
+            | {
+                "displayName": "disk-sleeping",
+                "physicalDisk": {
+                    "health": "PASSED",
+                    "storageState": "online",
+                    "temperature": 0,
+                    "spunDown": True,
+                    "wearout": -1,
+                },
+            },
+        ],
+        "activeAlerts": [],
+    }
+
+
+def _host_diagnostics_payload() -> dict:
+    return {
+        "resources": [
+            _resource("host-1", "agent", "res-host-1", "online")
+            | {
+                "agent": {"agentVersion": "6.3.1", "lastReportAt": "2026-08-24T10:00:00Z"},
+                "network": {"rxBytes": 2414, "txBytes": 1200},
+                "diskIO": {"readRate": 123, "writeRate": 456},
+            },
+            _resource("host-2", "agent", "res-host-2", "online"),
         ],
         "activeAlerts": [],
     }

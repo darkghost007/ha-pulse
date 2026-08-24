@@ -44,6 +44,14 @@ RESOURCE_ENTITY_KEYS = (
     "disk_usage",
     "temperature",
     "disk_temperature",
+    "disk_problems",
+    "disk_life_remaining",
+    "network_rx_rate",
+    "network_tx_rate",
+    "disk_read_rate",
+    "disk_write_rate",
+    "agent_version",
+    "agent_last_report",
     "uptime",
     "status",
     "usage",
@@ -80,6 +88,18 @@ class PulseResource:
     storage_total: int | None = None
     temperature: float | None = None
     uptime_seconds: float | None = None
+    disk_health: str | None = None
+    disk_storage_state: str | None = None
+    disk_spun_down: bool | None = None
+    disk_wearout: float | None = None
+    agent_version: str | None = None
+    agent_last_report_at: datetime | None = None
+    network_rx_rate: float | None = None
+    network_tx_rate: float | None = None
+    disk_read_rate: float | None = None
+    disk_write_rate: float | None = None
+    docker_health: str | None = None
+    docker_oom_killed: bool | None = None
 
     @property
     def is_running(self) -> bool:
@@ -142,6 +162,7 @@ class PulseData:
     ignored_types: dict[str, int] = field(default_factory=dict)
     stale: set[str] = field(default_factory=set)
     removed_resource_ids: set[str] = field(default_factory=set)
+    infrastructure_issues: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def resources(self) -> dict[str, PulseResource]:
@@ -326,6 +347,7 @@ def normalize_state(payload: dict[str, Any]) -> PulseData:
         ignored_types=ignored_types,
         stale=stale,
         removed_resource_ids=removed_resource_ids,
+        infrastructure_issues=_infrastructure_issues(payload),
     )
 
 
@@ -348,6 +370,12 @@ def _resource_from_raw(
     disk = raw.get("disk") if isinstance(raw.get("disk"), dict) else {}
     memory = raw.get("memory") if isinstance(raw.get("memory"), dict) else {}
     cpu = raw.get("cpu") if isinstance(raw.get("cpu"), dict) else {}
+    physical_disk = raw.get("physicalDisk") if isinstance(raw.get("physicalDisk"), dict) else {}
+    agent = raw.get("agent") if isinstance(raw.get("agent"), dict) else {}
+    network = raw.get("network") if isinstance(raw.get("network"), dict) else {}
+    disk_io = raw.get("diskIO") if isinstance(raw.get("diskIO"), dict) else {}
+    docker = raw.get("docker") if isinstance(raw.get("docker"), dict) else {}
+    platform_data = raw.get("platformData") if isinstance(raw.get("platformData"), dict) else {}
 
     is_guest = resource_type in GUEST_TYPES | CONTAINER_TYPES
     is_running = _string(raw.get("status")) in RUNNING_STATES
@@ -377,6 +405,20 @@ def _resource_from_raw(
         storage_total=_positive_int(disk.get("total")) if isinstance(disk, dict) else None,
         temperature=_resource_temperature(raw),
         uptime_seconds=_positive_number(raw.get("uptime")),
+        disk_health=_string(physical_disk.get("health")),
+        disk_storage_state=_string(physical_disk.get("storageState")),
+        disk_spun_down=physical_disk.get("spunDown") if isinstance(physical_disk.get("spunDown"), bool) else None,
+        disk_wearout=_wearout(physical_disk.get("wearout")),
+        agent_version=_string(agent.get("agentVersion")),
+        agent_last_report_at=parse_pulse_time(agent.get("lastReportAt")),
+        network_rx_rate=_positive_number(network.get("rxBytes")),
+        network_tx_rate=_positive_number(network.get("txBytes")),
+        disk_read_rate=_positive_number(disk_io.get("readRate")),
+        disk_write_rate=_positive_number(disk_io.get("writeRate")),
+        docker_health=_string(docker.get("health")) or _string(platform_data.get("health")),
+        docker_oom_killed=_boolish(docker.get("oomKilled"))
+        if _boolish(docker.get("oomKilled")) is not None
+        else _boolish(platform_data.get("oomKilled")),
     )
 
 
@@ -452,6 +494,64 @@ def _resource_temperature(raw: dict[str, Any]) -> float | None:
         if temperature is not None:
             return temperature
     return _number(raw.get("temperature"))
+
+
+def _wearout(value: Any) -> float | None:
+    number = _number(value)
+    if number is None or number < 0:
+        return None
+    return min(number, 100.0)
+
+
+def _boolish(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.lower()
+        if lowered in {"true", "yes", "1"}:
+            return True
+        if lowered in {"false", "no", "0"}:
+            return False
+    return None
+
+
+def _infrastructure_issues(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    connected = payload.get("connectedInfrastructure")
+    if isinstance(connected, list):
+        output: list[dict[str, Any]] = []
+        for item in connected:
+            if not isinstance(item, dict):
+                continue
+            status = _string(item.get("healthStatus"))
+            if status is None or status in {"online", "active"}:
+                continue
+            output.append(
+                {
+                    "name": _string(item.get("name")) or "unknown",
+                    "status": status,
+                    "last_seen": item.get("lastSeen"),
+                    "version": _string(item.get("version")),
+                    "problem": status in {"offline", "failed", "error", "unreachable"},
+                    "source": "connectedInfrastructure",
+                }
+            )
+        return output
+
+    connection_health = payload.get("connectionHealth")
+    if not isinstance(connection_health, dict):
+        return []
+    return [
+        {
+            "name": str(name),
+            "status": "offline",
+            "last_seen": None,
+            "version": None,
+            "problem": True,
+            "source": "connectionHealth",
+        }
+        for name, ok in connection_health.items()
+        if ok is False
+    ]
 
 
 def _alert_from_raw(raw: dict[str, Any]) -> PulseAlert:

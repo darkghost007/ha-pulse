@@ -15,6 +15,7 @@ from pathlib import Path
 
 # Nur diese Felder wandern in die Fixtures.
 METRIC_KEYS = {"current", "total", "used", "free"}
+RATE_KEYS = {"rxBytes", "txBytes", "readRate", "writeRate"}
 RESOURCE_KEYS = {
     "id", "type", "technology", "name", "displayName", "platformType",
     "sourceType", "sources", "status", "parentId", "parentName", "uptime",
@@ -86,10 +87,50 @@ def clean_storage(block: object) -> dict | None:
 def clean_physical_disk(block: object) -> dict | None:
     if not isinstance(block, dict):
         return None
-    temperature = block.get("temperature")
-    if not isinstance(temperature, (int, float)):
+    out: dict = {}
+    for key in ("temperature", "wearout", "sizeBytes"):
+        value = block.get(key)
+        if isinstance(value, (int, float)):
+            out[key] = value
+    for key in ("health", "storageState", "diskType"):
+        value = block.get(key)
+        if isinstance(value, str):
+            out[key] = value
+    if isinstance(block.get("spunDown"), bool):
+        out["spunDown"] = block["spunDown"]
+    smart = block.get("smart")
+    if isinstance(smart, dict) and isinstance(smart.get("powerOnHours"), (int, float)):
+        out["smart"] = {"powerOnHours": smart["powerOnHours"]}
+    return out or None
+
+
+def clean_agent(block: object) -> dict | None:
+    if not isinstance(block, dict):
         return None
-    return {"temperature": temperature}
+    out = {}
+    if isinstance(block.get("agentVersion"), str):
+        out["agentVersion"] = block["agentVersion"]
+    if isinstance(block.get("lastReportAt"), (int, float, str)):
+        out["lastReportAt"] = block["lastReportAt"]
+    return out or None
+
+
+def clean_rates(block: object, keys: set[str]) -> dict | None:
+    if not isinstance(block, dict):
+        return None
+    out = {key: value for key, value in block.items() if key in keys and isinstance(value, (int, float))}
+    return out or None
+
+
+def clean_health_block(block: object) -> dict | None:
+    if not isinstance(block, dict):
+        return None
+    out = {}
+    if isinstance(block.get("health"), str):
+        out["health"] = block["health"]
+    if isinstance(block.get("oomKilled"), bool):
+        out["oomKilled"] = block["oomKilled"]
+    return out or None
 
 
 def clean_resource(res: dict, p: Pseudonymizer) -> dict:
@@ -114,6 +155,21 @@ def clean_resource(res: dict, p: Pseudonymizer) -> dict:
     physical_disk = clean_physical_disk(res.get("physicalDisk"))
     if physical_disk is not None:
         out["physicalDisk"] = physical_disk
+    agent = clean_agent(res.get("agent"))
+    if agent is not None:
+        out["agent"] = agent
+    network = clean_rates(res.get("network"), {"rxBytes", "txBytes"})
+    if network is not None:
+        out["network"] = network
+    disk_io = clean_rates(res.get("diskIO"), {"readRate", "writeRate"})
+    if disk_io is not None:
+        out["diskIO"] = disk_io
+    docker = clean_health_block(res.get("docker"))
+    if docker is not None:
+        out["docker"] = docker
+    platform_data = clean_health_block(res.get("platformData"))
+    if platform_data is not None:
+        out["platformData"] = platform_data
     tags = clean_tags(res.get("tags"), p)
     if tags is not None:
         out["tags"] = tags
@@ -177,6 +233,30 @@ def add_parent_chain(picked: list[dict], resources: list[dict]) -> list[dict]:
     return output
 
 
+def clean_connected_infrastructure(items: object, p: Pseudonymizer) -> list[dict]:
+    if not isinstance(items, list):
+        return []
+    output = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        cleaned = {}
+        if isinstance(item.get("name"), str):
+            cleaned["name"] = p.get(item["name"], "infra")
+        for key in ("healthStatus", "lastSeen", "version"):
+            if isinstance(item.get(key), (str, int, float)):
+                cleaned[key] = item[key]
+        if cleaned:
+            output.append(cleaned)
+    return output
+
+
+def clean_connection_health(items: object, p: Pseudonymizer) -> dict[str, bool]:
+    if not isinstance(items, dict):
+        return {}
+    return {p.get(str(name), "infra"): value for name, value in items.items() if isinstance(value, bool)}
+
+
 def main(source: Path, dest: Path) -> None:
     state = json.loads(source.read_text())
     p = Pseudonymizer()
@@ -197,6 +277,12 @@ def main(source: Path, dest: Path) -> None:
         "lastUpdate": 1787520028513,
         "temperatureMonitoringEnabled": False,
     }
+    connected = clean_connected_infrastructure(state.get("connectedInfrastructure"), p)
+    if connected:
+        fixture["connectedInfrastructure"] = connected
+    connection_health = clean_connection_health(state.get("connectionHealth"), p)
+    if connection_health:
+        fixture["connectionHealth"] = connection_health
     dest.write_text(json.dumps(fixture, indent=2, sort_keys=True) + "\n")
     print(f"{dest}: {len(picked)} Ressourcen, {len(alerts)} Alerts")
 

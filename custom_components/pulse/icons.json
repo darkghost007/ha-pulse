@@ -33,6 +33,30 @@
       "disk_temperature": {
         "default": "mdi:thermometer-lines"
       },
+      "disk_problems": {
+        "default": "mdi:harddisk-alert"
+      },
+      "disk_life_remaining": {
+        "default": "mdi:heart-pulse"
+      },
+      "disk_read_rate": {
+        "default": "mdi:harddisk"
+      },
+      "disk_write_rate": {
+        "default": "mdi:harddisk"
+      },
+      "network_rx_rate": {
+        "default": "mdi:download-network"
+      },
+      "network_tx_rate": {
+        "default": "mdi:upload-network"
+      },
+      "agent_version": {
+        "default": "mdi:package-variant"
+      },
+      "agent_last_report": {
+        "default": "mdi:clock-check"
+      },
       "host_container_problems": {
         "default": "mdi:alert"
       },

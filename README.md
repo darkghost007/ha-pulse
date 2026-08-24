@@ -7,7 +7,7 @@ Devices und Entities ab.
 
 ## Status
 
-Version 0.3.0 für Pulse 6.3.1. Die Integration ist read-only und nutzt
+Version 0.4.0 für Pulse 6.3.1. Die Integration ist read-only und nutzt
 den Header `X-API-Token` mit einem Token, der nur den Scope `monitoring:read`
 benötigt.
 
@@ -51,10 +51,21 @@ Cache-Pool-Mitglieder und leere Array-Schatten übersprungen; für Vulpo reichen
 die Pool-Auslastungen. Used-/Total-Werte, rohe Statuswerte und Zähler bleiben
 als Diagnose-Entities erhalten.
 
+Plattenzustand fließt in den Host-Gerätestatus ein. Zusätzlich gibt es pro Host
+einen diagnostischen Zähler für Plattenprobleme und, falls Pulse verwertbare
+Werte liefert, die niedrigste verbleibende Plattenlebensdauer. Seriennummern
+werden nicht als Attribute ausgegeben.
+
+Netzwerk- und Platten-I/O-Raten sowie Agent-Version und letzter Agent-Bericht
+werden nur als Diagnose-Entities angelegt, wenn Pulse diese Werte für den Host
+liefert.
+
 Am Hub-Device entstehen zusätzlich Gesamtstatus, Warnungen, kritische Alarme,
 aktive Alerts und Host-/VM-/Container-Zähler. `binary_sensor.pulse_infrastructure_problem`
 bleibt für Automationen erhalten und wird `on`, wenn ein kritischer Host offline
-ist oder ein kritischer Alert aktiv ist.
+ist oder ein kritischer Alert aktiv ist. Der Gesamtstatus berücksichtigt auch
+Pulse-eigene Infrastrukturmeldungen aus `connectedInfrastructure` bzw. als
+Fallback `connectionHealth`.
 
 ## Sicherheit
 

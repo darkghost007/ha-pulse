@@ -14,7 +14,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfInformation, UnitOfTemperature
+from homeassistant.const import PERCENTAGE, UnitOfDataRate, UnitOfInformation, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -49,6 +49,14 @@ SummaryValueFn = Callable[[PulseData], Any]
 OVERALL_STATUS_OK = "ok"
 OVERALL_STATUS_WARNING = "warning"
 OVERALL_STATUS_PROBLEM = "problem"
+OPTIONAL_HOST_VALUE_KEYS = {
+    "network_rx_rate",
+    "network_tx_rate",
+    "disk_read_rate",
+    "disk_write_rate",
+    "agent_version",
+    "agent_last_report",
+}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -116,6 +124,79 @@ HOST_SENSOR_DESCRIPTIONS: tuple[PulseResourceSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
         value_fn=lambda resource: None,
+    ),
+    PulseResourceSensorDescription(
+        key="disk_problems",
+        translation_key="disk_problems",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:harddisk-alert",
+        value_fn=lambda resource: None,
+    ),
+    PulseResourceSensorDescription(
+        key="disk_life_remaining",
+        translation_key="disk_life_remaining",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        suggested_display_precision=0,
+        icon="mdi:heart-pulse",
+        value_fn=lambda resource: None,
+    ),
+    PulseResourceSensorDescription(
+        key="network_rx_rate",
+        translation_key="network_rx_rate",
+        native_unit_of_measurement=UnitOfDataRate.BYTES_PER_SECOND,
+        device_class=SensorDeviceClass.DATA_RATE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:download-network",
+        value_fn=lambda resource: resource.network_rx_rate,
+    ),
+    PulseResourceSensorDescription(
+        key="network_tx_rate",
+        translation_key="network_tx_rate",
+        native_unit_of_measurement=UnitOfDataRate.BYTES_PER_SECOND,
+        device_class=SensorDeviceClass.DATA_RATE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:upload-network",
+        value_fn=lambda resource: resource.network_tx_rate,
+    ),
+    PulseResourceSensorDescription(
+        key="disk_read_rate",
+        translation_key="disk_read_rate",
+        native_unit_of_measurement=UnitOfDataRate.BYTES_PER_SECOND,
+        device_class=SensorDeviceClass.DATA_RATE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:harddisk",
+        value_fn=lambda resource: resource.disk_read_rate,
+    ),
+    PulseResourceSensorDescription(
+        key="disk_write_rate",
+        translation_key="disk_write_rate",
+        native_unit_of_measurement=UnitOfDataRate.BYTES_PER_SECOND,
+        device_class=SensorDeviceClass.DATA_RATE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:harddisk",
+        value_fn=lambda resource: resource.disk_write_rate,
+    ),
+    PulseResourceSensorDescription(
+        key="agent_version",
+        translation_key="agent_version",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:package-variant",
+        value_fn=lambda resource: resource.agent_version,
+    ),
+    PulseResourceSensorDescription(
+        key="agent_last_report",
+        translation_key="agent_last_report",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:clock-check",
+        value_fn=lambda resource: resource.agent_last_report_at,
     ),
     PulseResourceSensorDescription(
         key="status",
@@ -343,10 +424,18 @@ async def async_setup_entry(
             dict(entry.options.get(CONF_ALIAS_MAP, {})),
         )
         for resource_id in sorted(host_ids):
+            resource = data.hosts.get(resource_id)
             for description in HOST_SENSOR_DESCRIPTIONS:
                 if description.key == "temperature" and _host_temperature_value(data, resource_id) is None:
                     continue
                 if description.key == "disk_temperature" and _host_disk_temperature_value(data, resource_id) is None:
+                    continue
+                if description.key == "disk_life_remaining" and _host_disk_life_remaining(data, resource_id) is None:
+                    continue
+                if (
+                    description.key in OPTIONAL_HOST_VALUE_KEYS
+                    and (resource is None or description.value_fn(resource) is None)
+                ):
                     continue
                 unique = f"host_{resource_id}_{description.key}"
                 if unique not in known:
@@ -433,6 +522,7 @@ class PulseSummarySensor(PulseEntity, SensorEntity):
         return {
             "triggering_hosts": _triggering_hosts(data, self._entry),
             "triggering_alerts": _triggering_alerts(data),
+            "infrastructure_issues": data.infrastructure_issues,
         }
 
 
@@ -490,6 +580,16 @@ class PulseHostSensor(PulseHostEntity, PulseResourceSensor):
             if data is None or "resources" in data.stale:
                 return None
             return _host_disk_temperature_value(data, self.current_resource_id)
+        if self.entity_description.key == "disk_problems":
+            data = self.coordinator.data
+            if data is None or "resources" in data.stale:
+                return None
+            return len(_host_disk_problem_details(data, self.current_resource_id))
+        if self.entity_description.key == "disk_life_remaining":
+            data = self.coordinator.data
+            if data is None or "resources" in data.stale:
+                return None
+            return _host_disk_life_remaining(data, self.current_resource_id)
         if self.entity_description.key in {
             "containers_running",
             "containers_stopped",
@@ -524,6 +624,10 @@ class PulseHostSensor(PulseHostEntity, PulseResourceSensor):
             return _host_health_attributes(data, self.current_resource_id)
         if self.entity_description.key == "disk_temperature":
             return {"disks": _host_disk_temperatures(data, self.current_resource_id)}
+        if self.entity_description.key == "disk_problems":
+            return {"disks": _host_disk_problem_details(data, self.current_resource_id)}
+        if self.entity_description.key == "disk_life_remaining":
+            return {"disks": _host_disk_life_details(data, self.current_resource_id)}
         return None
 
 
@@ -599,11 +703,15 @@ def _host_health_value(data: PulseData, host_id: str) -> str | None:
         return OVERALL_STATUS_PROBLEM
     if any(alert.level == "critical" for alert in _host_alerts(data, host_id)):
         return OVERALL_STATUS_PROBLEM
+    if any(_disk_problem_severity(disk) == OVERALL_STATUS_PROBLEM for disk in _host_disks(data, host_id)):
+        return OVERALL_STATUS_PROBLEM
     if not host.is_host_healthy:
         return OVERALL_STATUS_WARNING
     if any(alert.level == "warning" for alert in _host_alerts(data, host_id)):
         return OVERALL_STATUS_WARNING
     if any(storage.status != "online" for storage in _host_storages(data, host_id)):
+        return OVERALL_STATUS_WARNING
+    if any(_disk_problem_severity(disk) == OVERALL_STATUS_WARNING for disk in _host_disks(data, host_id)):
         return OVERALL_STATUS_WARNING
     return OVERALL_STATUS_OK
 
@@ -634,6 +742,18 @@ def _host_health_attributes(data: PulseData, host_id: str) -> dict[str, Any]:
             _resource_attribute(storage, "pool_not_online")
             for storage in _host_storages(data, host_id)
             if storage.status != "online"
+        )
+        triggering_resources.extend(
+            {
+                "id": disk.canonical_id,
+                "name": disk.name,
+                "type": disk.type,
+                "health": disk.disk_health,
+                "storageState": disk.disk_storage_state,
+                "reason": "disk_health",
+            }
+            for disk in _host_disks(data, host_id)
+            if _disk_problem_severity(disk) is not None
         )
     return {
         "triggering_alerts": triggering_alerts,
@@ -687,7 +807,11 @@ def _overall_status(data: PulseData, entry: ConfigEntry) -> str | None:
         return None
     if _problem_hosts(data, entry) or _critical_alerts(data):
         return OVERALL_STATUS_PROBLEM
+    if any(issue["problem"] for issue in data.infrastructure_issues):
+        return OVERALL_STATUS_PROBLEM
     if _warning_hosts(data) or _warning_alerts(data):
+        return OVERALL_STATUS_WARNING
+    if data.infrastructure_issues:
         return OVERALL_STATUS_WARNING
     return OVERALL_STATUS_OK
 
@@ -747,18 +871,63 @@ def _host_temperature_value(data: PulseData, host_id: str) -> float | None:
 
 
 def _host_disk_temperature_value(data: PulseData, host_id: str) -> float | None:
-    values = []
-    values.extend(item["temperature"] for item in _host_disk_temperatures(data, host_id))
+    values = [
+        item["temperature"]
+        for item in _host_disk_temperatures(data, host_id)
+        if item["temperature"] is not None
+    ]
     if not values:
         return None
     return round(max(values), 1)
 
 
 def _host_disk_temperatures(data: PulseData, host_id: str) -> list[dict[str, Any]]:
+    output = []
+    for disk in sorted(_host_disks(data, host_id), key=lambda item: item.name):
+        if disk.disk_spun_down:
+            output.append({"name": disk.name, "temperature": None, "spun_down": True})
+        elif _valid_temperature(disk.temperature):
+            output.append({"name": disk.name, "temperature": round(disk.temperature, 1), "spun_down": False})
+    return output
+
+
+def _host_disks(data: PulseData, host_id: str) -> list[PulseResource]:
+    return [disk for disk in data.physical_disks.values() if disk.host_canonical_id == host_id]
+
+
+def _host_disk_problem_details(data: PulseData, host_id: str) -> list[dict[str, Any]]:
     return [
-        {"name": disk.name, "temperature": round(disk.temperature, 1)}
-        for disk in sorted(data.physical_disks.values(), key=lambda item: item.name)
-        if disk.host_canonical_id == host_id and _valid_temperature(disk.temperature)
+        {"name": disk.name, "health": disk.disk_health, "storageState": disk.disk_storage_state}
+        for disk in sorted(_host_disks(data, host_id), key=lambda item: item.name)
+        if _disk_problem_severity(disk) is not None
+    ]
+
+
+def _disk_problem_severity(disk: PulseResource) -> str | None:
+    health = (disk.disk_health or "").upper()
+    storage_state = (disk.disk_storage_state or "").lower()
+    if health and health not in {"PASSED", "UNKNOWN"}:
+        return OVERALL_STATUS_PROBLEM
+    if storage_state and storage_state != "online":
+        return OVERALL_STATUS_WARNING
+    return None
+
+
+def _host_disk_life_remaining(data: PulseData, host_id: str) -> float | None:
+    # Pulse v6.3.1 unified-resources contract beschreibt `wearout` als
+    # Ausgangswert für "remaining life"; negative Werte sind der Sentinel für
+    # keine Angabe und werden bereits in der Normalisierung entfernt.
+    values = [disk.disk_wearout for disk in _host_disks(data, host_id) if disk.disk_wearout is not None]
+    if not values:
+        return None
+    return min(values)
+
+
+def _host_disk_life_details(data: PulseData, host_id: str) -> list[dict[str, Any]]:
+    return [
+        {"name": disk.name, "life_remaining": disk.disk_wearout}
+        for disk in sorted(_host_disks(data, host_id), key=lambda item: item.name)
+        if disk.disk_wearout is not None
     ]
 
 
@@ -774,8 +943,7 @@ def _count_container_problems(data: PulseData, host_id: str) -> int:
     problem_ids = {
         container.canonical_id
         for container in data.containers.values()
-        if container.host_canonical_id == host_id
-        and container.status not in {"running", "stopped", "online"}
+        if container.host_canonical_id == host_id and _container_has_problem(container)
     }
     for alert in data.alerts:
         for container in data.containers.values():
@@ -784,3 +952,12 @@ def _count_container_problems(data: PulseData, host_id: str) -> int:
             if alert.resource_id in {container.resource_id, container.canonical_id}:
                 problem_ids.add(container.canonical_id)
     return len(problem_ids)
+
+
+def _container_has_problem(container: PulseResource) -> bool:
+    health = (container.docker_health or "").lower()
+    if health and health not in {"healthy", "none", "unknown"}:
+        return True
+    if container.docker_oom_killed:
+        return True
+    return container.status not in {"running", "stopped", "online"}

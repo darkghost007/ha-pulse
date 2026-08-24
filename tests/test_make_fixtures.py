@@ -32,7 +32,16 @@ def test_fixture_generator_preserves_nested_disk_parent_chain() -> None:
             "name": "real-disk",
             "displayName": "real-disk",
             "canonicalIdentity": {"primaryId": "disk-canon", "aliases": []},
-            "physicalDisk": {"temperature": 37},
+            "physicalDisk": {
+                "temperature": 37,
+                "health": "PASSED",
+                "storageState": "online",
+                "spunDown": False,
+                "wearout": 73,
+                "serial": "real-serial",
+                "model": "real-model",
+                "smart": {"powerOnHours": 1234},
+            },
         },
     ]
 
@@ -42,9 +51,18 @@ def test_fixture_generator_preserves_nested_disk_parent_chain() -> None:
     by_type = {resource["type"]: resource for resource in cleaned}
 
     assert set(by_type) == {"agent", "storage", "physical_disk"}
-    assert by_type["physical_disk"]["physicalDisk"] == {"temperature": 37}
+    assert by_type["physical_disk"]["physicalDisk"] == {
+        "health": "PASSED",
+        "smart": {"powerOnHours": 1234},
+        "spunDown": False,
+        "storageState": "online",
+        "temperature": 37,
+        "wearout": 73,
+    }
     assert by_type["physical_disk"]["parentId"] == by_type["storage"]["id"]
     assert by_type["storage"]["parentId"] == by_type["agent"]["id"]
     assert by_type["storage"]["storage"] == {"type": "unraid-cache-pool"}
     assert by_type["storage"]["tags"] == ["none"]
     assert "real" not in repr(cleaned)
+    assert "serial" not in repr(cleaned)
+    assert "model" not in repr(cleaned)
