@@ -63,27 +63,52 @@
   "entity": {
     "sensor": {
       "active_alerts": {"name": "Aktive Alarme"},
-      "containers_running": {"name": "Container laufend"},
-      "containers_stopped": {"name": "Container gestoppt"},
+      "containers_running": {"name": "Laufende Container"},
+      "containers_stopped": {"name": "Gestoppte Container"},
       "cpu_usage": {"name": "CPU-Auslastung"},
+      "critical_alerts": {"name": "Kritische Alarme"},
       "disk_usage": {"name": "Datenträgerauslastung"},
+      "host_container_problems": {"name": "Container-Probleme"},
+      "host_containers_running": {"name": "Laufende Container"},
+      "host_containers_stopped": {"name": "Gestoppte Container"},
+      "host_guests_running": {"name": "Laufende Gäste"},
+      "host_guests_stopped": {"name": "Gestoppte Gäste"},
       "hosts_offline": {"name": "Hosts offline"},
       "hosts_online": {"name": "Hosts online"},
-      "memory_usage": {"name": "Speicherauslastung"},
-      "status": {"name": "Status"},
+      "memory_usage": {"name": "Arbeitsspeicherauslastung"},
+      "overall_status": {
+        "name": "Gesamtstatus",
+        "state": {
+          "ok": "Alle Systeme OK",
+          "warning": "Warnung",
+          "problem": "Problem"
+        }
+      },
+      "status": {
+        "name": "Status",
+        "state": {
+          "online": "Online",
+          "degraded": "Eingeschränkt",
+          "offline": "Offline",
+          "running": "Läuft",
+          "stopped": "Gestoppt",
+          "unknown": "Unbekannt"
+        }
+      },
       "storage_usage": {"name": "Storage-Auslastung"},
       "temperature": {"name": "Temperatur"},
       "total": {"name": "Gesamt"},
       "uptime": {"name": "Uptime"},
       "usage": {"name": "Auslastung"},
       "used": {"name": "Verwendet"},
-      "vms_running": {"name": "VMs laufend"},
-      "vms_stopped": {"name": "VMs gestoppt"}
+      "vms_running": {"name": "Laufende VMs"},
+      "vms_stopped": {"name": "Gestoppte VMs"},
+      "warnings": {"name": "Warnungen"}
     },
     "binary_sensor": {
       "infrastructure_problem": {"name": "Infrastrukturproblem"},
       "online": {"name": "Online"},
-      "running": {"name": "Läuft"}
+      "running": {"name": "Betriebsstatus"}
     }
   }
 }

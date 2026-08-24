@@ -65,6 +65,9 @@ class PulseResourceEntity(PulseEntity):
 
     @property
     def available(self) -> bool:
+        data = self.coordinator.data
+        if data is None or "resources" in data.stale:
+            return False
         return self.resource is not None and super().available
 
     @property

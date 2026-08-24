@@ -49,7 +49,6 @@ INFRASTRUCTURE_PROBLEM_DESCRIPTION = PulseBinarySensorDescription(
     key="infrastructure_problem",
     translation_key="infrastructure_problem",
     device_class=BinarySensorDeviceClass.PROBLEM,
-    icon="mdi:shield-check",
 )
 
 
@@ -115,12 +114,13 @@ class PulseHostOnlineBinarySensor(PulseHostEntity, BinarySensorEntity):
 
     @property
     def available(self) -> bool:
-        return self.coordinator.data is not None and self.coordinator.last_update_success
+        data = self.coordinator.data
+        return data is not None and "resources" not in data.stale and self.coordinator.last_update_success
 
     @property
     def is_on(self) -> bool | None:
         data = self.coordinator.data
-        if data is None:
+        if data is None or "resources" in data.stale:
             return None
         resource = self.resource
         if resource is None:
@@ -172,7 +172,7 @@ class PulseInfrastructureProblemBinarySensor(PulseEntity, BinarySensorEntity):
         critical_hosts = self._critical_host_ids()
         if not critical_hosts:
             return None if not data.hosts else False
-        if any(host_id not in data.hosts or not data.hosts[host_id].is_host_healthy for host_id in critical_hosts):
+        if any(host_id not in data.hosts or not data.hosts[host_id].is_host_online for host_id in critical_hosts):
             return True
         return False
 
@@ -185,7 +185,7 @@ class PulseInfrastructureProblemBinarySensor(PulseEntity, BinarySensorEntity):
         triggering_hosts = [
             {"id": host_id, "name": data.hosts[host_id].name if host_id in data.hosts else host_id}
             for host_id in sorted(critical_hosts)
-            if host_id not in data.hosts or not data.hosts[host_id].is_host_healthy
+            if host_id not in data.hosts or not data.hosts[host_id].is_host_online
         ]
         triggering_alerts = [
             {
@@ -211,5 +211,6 @@ class PulseInfrastructureProblemBinarySensor(PulseEntity, BinarySensorEntity):
         mode = self._entry.options.get(CONF_CRITICAL_HOSTS_MODE, CRITICAL_MODE_ALL)
         if mode == CRITICAL_MODE_SELECTED:
             return remap_alias_ids(self._entry.options.get(CONF_CRITICAL_HOSTS, []), alias_map)
+        self._known_hosts.update(remap_alias_ids(self._entry.options.get(CONF_KNOWN_HOSTS, []), alias_map))
         self._known_hosts.update(data.hosts)
         return set(self._known_hosts)

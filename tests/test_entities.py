@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +13,7 @@ from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import CONF_HOST, STATE_UNAVAILABLE
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.entity import EntityCategory
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.pulse import binary_sensor, sensor
@@ -27,7 +30,15 @@ from custom_components.pulse.coordinator import (
     _migrate_resource_unique_ids,
     normalize_state,
 )
-from custom_components.pulse.sensor import PulseGuestSensor, PulseHostUptimeSensor
+from custom_components.pulse.sensor import (
+    OVERALL_STATUS_PROBLEM,
+    OVERALL_STATUS_WARNING,
+    PulseGuestSensor,
+    PulseHostSensor,
+    PulseHostUptimeSensor,
+    PulsePhysicalDiskSensor,
+    PulseStorageSensor,
+)
 
 
 @pytest.mark.asyncio
@@ -73,16 +84,19 @@ async def test_primary_id_change_removes_old_host_with_real_ha_setup(
     entities = [
         entity
         for entity in entity_registry.entities.values()
-        if entity.config_entry_id == entry.entry_id
-        and entity.platform == "pulse"
-        and entity.domain == "binary_sensor"
-        and entity.unique_id.endswith("_online")
+        if entity.config_entry_id == entry.entry_id and entity.platform == "pulse"
+    ]
+    online_entities = [
+        entity
+        for entity in entities
+        if entity.domain == "binary_sensor" and entity.unique_id.endswith("_online")
     ]
     devices = list(device_registry.devices.values())
 
-    assert len(entities) == 1
-    assert entities[0].entity_id == old_entity_id
-    assert entities[0].unique_id == "entry-real_new-id_online"
+    assert len(online_entities) == 1
+    assert online_entities[0].entity_id == old_entity_id
+    assert online_entities[0].unique_id == "entry-real_new-id_online"
+    assert not any("old-id" in entity.unique_id for entity in entities)
     assert entity_registry.async_get_entity_id("binary_sensor", DOMAIN, "entry-real_old-id_online") is None
     assert device_registry.async_get_device({(DOMAIN, "entry-real_old-id")}) is None
     assert device_registry.async_get_device({(DOMAIN, "entry-real_new-id")}) is not None
@@ -103,8 +117,8 @@ async def test_entity_counts_and_metadata_from_fixture(fixture_state: dict) -> N
     await sensor.async_setup_entry(SimpleNamespace(), entry, added.extend)
     await binary_sensor.async_setup_entry(SimpleNamespace(), entry, added.extend)
 
-    assert len(added) == 49
-    assert len({entity.unique_id for entity in added}) == 49
+    assert len(added) == 72
+    assert len({entity.unique_id for entity in added}) == 72
 
     by_unique = {entity.unique_id: entity for entity in added}
     host_id = next(iter(data.hosts))
@@ -120,6 +134,9 @@ async def test_entity_counts_and_metadata_from_fixture(fixture_state: dict) -> N
     online = by_unique[f"entry-1_{host_id}_online"]
     assert online.device_class is BinarySensorDeviceClass.CONNECTIVITY
     assert online.available is True
+
+    status = by_unique[f"entry-1_{host_id}_status"]
+    assert status.entity_category is EntityCategory.DIAGNOSTIC
 
     assert not any(entity.unique_id.endswith("_used") for entity in added if "canon-37" in entity.unique_id)
     assert not any(entity.unique_id.endswith("_total") for entity in added if "canon-41" in entity.unique_id)
@@ -151,8 +168,250 @@ async def test_include_docker_containers_changes_entity_count(fixture_state: dic
     await sensor.async_setup_entry(SimpleNamespace(), entry, added.extend)
     await binary_sensor.async_setup_entry(SimpleNamespace(), entry, added.extend)
 
-    assert len(added) == 61
+    assert len(added) == 84
     assert sum(1 for entity in added if "_canon-10_" in entity.unique_id) == 4
+
+
+def test_stale_resources_make_resource_entities_unavailable_and_summaries_unknown() -> None:
+    data = normalize_state({"activeAlerts": []})
+    entry = _entry(options={CONF_KNOWN_HOSTS: ["agent:missing"]})
+    coordinator = _coordinator(entry, data)
+
+    online = binary_sensor.PulseHostOnlineBinarySensor(coordinator, "agent:missing")
+    host_summary = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "hosts_offline"),
+    )
+    active_alerts = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "active_alerts"),
+    )
+
+    assert "resources" in data.stale
+    assert online.available is False
+    assert online.is_on is None
+    assert host_summary.native_value is None
+    assert active_alerts.native_value is None
+
+
+def test_stale_resources_make_all_resource_entity_types_unavailable() -> None:
+    data = normalize_state(
+        {
+            "resources": [
+                _resource("host-1", "agent", "res-host", "online"),
+                _resource("guest-1", "vm", "res-guest", "running", parent_id="res-host"),
+                _resource("storage-1", "storage", "res-storage", "online"),
+                _resource("disk-1", "physical_disk", "res-disk", "online"),
+                {"id": "broken-host", "type": "agent", "status": "offline"},
+            ],
+            "activeAlerts": [],
+        }
+    )
+    entry = _entry()
+    coordinator = _coordinator(entry, data)
+
+    host = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "cpu_usage"),
+    )
+    guest = PulseGuestSensor(
+        coordinator,
+        "guest-1",
+        next(description for description in sensor.GUEST_SENSOR_DESCRIPTIONS if description.key == "cpu_usage"),
+    )
+    storage = PulseStorageSensor(
+        coordinator,
+        "storage-1",
+        next(description for description in sensor.STORAGE_SENSOR_DESCRIPTIONS if description.key == "usage"),
+    )
+    disk = PulsePhysicalDiskSensor(
+        coordinator,
+        "disk-1",
+        next(description for description in sensor.PHYSICAL_DISK_SENSOR_DESCRIPTIONS if description.key == "status"),
+    )
+
+    assert "resources" in data.stale
+    assert host.available is False
+    assert guest.available is False
+    assert storage.available is False
+    assert disk.available is False
+
+
+def test_stale_alerts_make_alert_counters_unknown(fixture_state: dict) -> None:
+    payload = dict(fixture_state)
+    payload.pop("activeAlerts")
+    data = normalize_state(payload)
+    entry = _entry()
+    coordinator = _coordinator(entry, data)
+
+    active_alerts = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "active_alerts"),
+    )
+    warnings = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "warnings"),
+    )
+    critical = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "critical_alerts"),
+    )
+
+    assert "alerts" in data.stale
+    assert active_alerts.native_value is None
+    assert warnings.native_value is None
+    assert critical.native_value is None
+
+
+def test_overall_status_and_warning_counters_use_degraded_as_warning(fixture_state: dict) -> None:
+    payload = dict(fixture_state)
+    payload["activeAlerts"] = []
+    data = normalize_state(payload)
+    entry = _entry(options={CONF_KNOWN_HOSTS: sorted(data.hosts)})
+    coordinator = _coordinator(entry, data)
+    overall = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "overall_status"),
+    )
+    warnings = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "warnings"),
+    )
+    critical = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "critical_alerts"),
+    )
+
+    assert overall.native_value == OVERALL_STATUS_WARNING
+    assert warnings.native_value == 1
+    assert critical.native_value == 0
+    assert overall.extra_state_attributes["triggering_hosts"] == [
+        {"id": "canon-57", "name": "host-1", "status": "degraded"}
+    ]
+
+
+def test_overall_status_problem_attributes_include_critical_alerts(fixture_state: dict) -> None:
+    data = normalize_state(fixture_state)
+    entry = _entry(options={CONF_KNOWN_HOSTS: sorted(data.hosts)})
+    coordinator = _coordinator(entry, data)
+    overall = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "overall_status"),
+    )
+    warnings = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "warnings"),
+    )
+    critical = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "critical_alerts"),
+    )
+
+    assert overall.native_value == OVERALL_STATUS_PROBLEM
+    assert warnings.native_value == 1
+    assert critical.native_value == 4
+    assert len(overall.extra_state_attributes["triggering_alerts"]) == 4
+
+
+def test_host_counters_exist_without_container_entities(fixture_state: dict) -> None:
+    data = normalize_state(fixture_state)
+    entry = _entry(options={CONF_KNOWN_HOSTS: sorted(data.hosts), CONF_INCLUDE_CONTAINERS: False})
+    coordinator = _coordinator(entry, data)
+    host_id = "canon-57"
+
+    values = {}
+    for key in (
+        "containers_running",
+        "containers_stopped",
+        "container_problems",
+        "guests_running",
+        "guests_stopped",
+    ):
+        description = next(item for item in sensor.HOST_SENSOR_DESCRIPTIONS if item.key == key)
+        values[key] = PulseHostSensor(coordinator, host_id, description).native_value
+
+    assert values == {
+        "containers_running": 2,
+        "containers_stopped": 1,
+        "container_problems": 0,
+        "guests_running": 2,
+        "guests_stopped": 0,
+    }
+
+
+def test_diagnostic_entity_categories_for_secondary_values(fixture_state: dict) -> None:
+    data = normalize_state(fixture_state)
+    entry = _entry()
+    coordinator = _coordinator(entry, data)
+    host_id = next(iter(data.hosts))
+    storage_id = next(iter(data.storages))
+    disk_id = next(iter(data.physical_disks))
+
+    host_status = PulseHostSensor(
+        coordinator,
+        host_id,
+        next(item for item in sensor.HOST_SENSOR_DESCRIPTIONS if item.key == "status"),
+    )
+    storage_used = PulseStorageSensor(
+        coordinator,
+        storage_id,
+        next(item for item in sensor.STORAGE_SENSOR_DESCRIPTIONS if item.key == "used"),
+    )
+    storage_total = PulseStorageSensor(
+        coordinator,
+        storage_id,
+        next(item for item in sensor.STORAGE_SENSOR_DESCRIPTIONS if item.key == "total"),
+    )
+    disk_status = PulsePhysicalDiskSensor(
+        coordinator,
+        disk_id,
+        next(item for item in sensor.PHYSICAL_DISK_SENSOR_DESCRIPTIONS if item.key == "status"),
+    )
+
+    assert host_status.entity_category is EntityCategory.DIAGNOSTIC
+    assert storage_used.entity_category is EntityCategory.DIAGNOSTIC
+    assert storage_total.entity_category is EntityCategory.DIAGNOSTIC
+    assert disk_status.entity_category is EntityCategory.DIAGNOSTIC
+
+
+def test_icon_translations_cover_problem_and_overall_status() -> None:
+    icons = json.loads((Path(__file__).parents[1] / "custom_components/pulse/icons.json").read_text())
+
+    assert icons["entity"]["binary_sensor"]["infrastructure_problem"]["state"] == {
+        "off": "mdi:shield-check",
+        "on": "mdi:alert-octagon",
+    }
+    assert icons["entity"]["sensor"]["overall_status"]["state"] == {
+        "ok": "mdi:shield-check",
+        "problem": "mdi:alert-octagon",
+        "warning": "mdi:alert",
+    }
+
+
+def test_german_translations_use_requested_labels_and_enum_states() -> None:
+    translations = json.loads(
+        (Path(__file__).parents[1] / "custom_components/pulse/translations/de.json").read_text()
+    )
+    sensors = translations["entity"]["sensor"]
+
+    assert sensors["memory_usage"]["name"] == "Arbeitsspeicherauslastung"
+    assert sensors["host_containers_running"]["name"] == "Laufende Container"
+    assert translations["entity"]["binary_sensor"]["running"]["name"] == "Betriebsstatus"
+    assert sensors["status"]["state"] == {
+        "online": "Online",
+        "degraded": "Eingeschränkt",
+        "offline": "Offline",
+        "running": "Läuft",
+        "stopped": "Gestoppt",
+        "unknown": "Unbekannt",
+    }
+
+
+def test_manifest_version_is_020() -> None:
+    manifest = json.loads((Path(__file__).parents[1] / "custom_components/pulse/manifest.json").read_text())
+
+    assert manifest["version"] == "0.2.0"
 
 
 def test_guest_without_disk_block_reports_unknown_disk(fixture_state: dict) -> None:
@@ -327,6 +586,19 @@ def _coordinator(entry, data):
         last_update_success=True,
         async_add_listener=lambda _listener: (lambda: None),
     )
+
+
+def _resource(primary_id: str, resource_type: str, resource_id: str, status: str, *, parent_id: str | None = None) -> dict:
+    return {
+        "id": resource_id,
+        "type": resource_type,
+        "status": status,
+        "parentId": parent_id,
+        "canonicalIdentity": {"primaryId": primary_id, "aliases": []},
+        "cpu": {"current": 12},
+        "memory": {"current": 34, "used": 34, "total": 100, "free": 66},
+        "disk": {"current": 56, "used": 56, "total": 100, "free": 44},
+    }
 
 
 def _host_payload(primary_id: str, *, aliases: list[str]) -> dict:

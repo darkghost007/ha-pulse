@@ -7,7 +7,7 @@ Devices und Entities ab.
 
 ## Status
 
-Frühe Implementierung für Pulse 6.3.1. Die Integration ist read-only und nutzt
+Version 0.2.0 für Pulse 6.3.1. Die Integration ist read-only und nutzt
 den Header `X-API-Token` mit einem Token, der nur den Scope `monitoring:read`
 benötigt.
 
@@ -34,7 +34,7 @@ eine explizite Bestätigung, weil Token und Infrastruktur-Topologie unverschlüs
 
 ## Entities
 
-Pro Host entstehen Online-, CPU-, Speicher-, Storage-, Uptime- und Status-Entities;
+Pro Host entstehen Online-, CPU-, Arbeitsspeicher-, Storage-, Uptime- und Status-Entities;
 Temperatur wird nur angelegt, wenn Pulse einen Wert liefert. Storage-Ressourcen
 erhalten Usage-, Used- und Total-Sensoren. VMs und optionale Docker-Container
 erhalten Running-, CPU-, Speicher- und Disk-Entities.
@@ -42,6 +42,14 @@ erhalten Running-, CPU-, Speicher- und Disk-Entities.
 Am Hub-Device entstehen Zähler für aktive Alerts, Host-/VM-/Container-Status und
 `binary_sensor.pulse_infrastructure_problem`. Bei `device_class: problem` bedeutet
 `on`, dass ein kritischer Host offline ist oder ein kritischer Alert aktiv ist.
+Zusätzlich liefert `sensor.pulse_gesamtstatus` einen anzeigefertigen Zustand
+`ok`, `warning` oder `problem`; `sensor.pulse_warnungen` zählt Warn-Alerts und
+erreichbare, aber degradierte Hosts, `sensor.pulse_kritische_alarme` zählt
+kritische Alerts.
+
+Pro Host gibt es Container- und Gästezähler unabhängig davon, ob Docker-Container
+als eigene Entities aktiviert sind: laufende/gestoppte Container,
+Container-Probleme sowie laufende/gestoppte Gäste.
 
 ## Sicherheit
 
@@ -59,8 +67,8 @@ keinen dauerhaften RAM-Fehlalarm für laufende oder gestoppte Gäste zeigt.
 ## Entwicklung
 
 ```bash
-/opt/homebrew/bin/python3.12 -m venv .venv
-.venv/bin/python -m pip install -U pip homeassistant pytest pytest-homeassistant-custom-component aioresponses syrupy
+/opt/homebrew/bin/python3.14 -m venv .venv
+uv pip install --python .venv/bin/python homeassistant==2026.8.3 pytest pytest-homeassistant-custom-component aioresponses syrupy
 .venv/bin/python -m pytest
 ```
 

@@ -5,7 +5,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from custom_components.pulse.binary_sensor import PulseInfrastructureProblemBinarySensor
-from custom_components.pulse.const import CONF_CRITICAL_HOSTS, CONF_CRITICAL_HOSTS_MODE, CRITICAL_MODE_SELECTED
+from custom_components.pulse.const import (
+    CONF_ALIAS_MAP,
+    CONF_CRITICAL_HOSTS,
+    CONF_CRITICAL_HOSTS_MODE,
+    CONF_KNOWN_HOSTS,
+    CRITICAL_MODE_SELECTED,
+)
 from custom_components.pulse.coordinator import normalize_state
 
 
@@ -26,13 +32,13 @@ def test_infrastructure_problem_all_online_is_off(fixture_state: dict) -> None:
     assert sensor.is_on is False
 
 
-def test_infrastructure_problem_degraded_host_is_on(fixture_state: dict) -> None:
+def test_infrastructure_problem_degraded_host_is_off(fixture_state: dict) -> None:
     payload = dict(fixture_state)
     payload["activeAlerts"] = []
     sensor = _problem_sensor(normalize_state(payload))
 
-    assert sensor.is_on is True
-    assert sensor.extra_state_attributes["triggering_hosts"]
+    assert sensor.is_on is False
+    assert sensor.extra_state_attributes["triggering_hosts"] == []
 
 
 def test_infrastructure_problem_critical_alert_is_on(fixture_state: dict) -> None:
@@ -80,6 +86,30 @@ def test_infrastructure_problem_unparseable_offline_host_is_unknown() -> None:
 
     assert "resources" in data.stale
     assert sensor.is_on is None
+
+
+def test_infrastructure_problem_uses_persisted_known_hosts_after_restart() -> None:
+    data = normalize_state({"resources": [], "activeAlerts": []})
+    sensor = _problem_sensor(data, options={CONF_KNOWN_HOSTS: ["agent:missing"]})
+
+    assert sensor.is_on is True
+    assert sensor.extra_state_attributes["triggering_hosts"] == [
+        {"id": "agent:missing", "name": "agent:missing"}
+    ]
+
+
+def test_infrastructure_problem_remaps_persisted_known_hosts() -> None:
+    data = normalize_state({"resources": [], "activeAlerts": []})
+    sensor = _problem_sensor(
+        data,
+        options={
+            CONF_ALIAS_MAP: {"old-id": "new-id"},
+            CONF_KNOWN_HOSTS: ["old-id"],
+        },
+    )
+
+    assert sensor.is_on is True
+    assert sensor.extra_state_attributes["triggering_hosts"] == [{"id": "new-id", "name": "new-id"}]
 
 
 def test_acknowledged_critical_alert_still_counts(fixture_state: dict) -> None:

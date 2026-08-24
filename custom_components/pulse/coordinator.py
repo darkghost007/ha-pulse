@@ -47,6 +47,11 @@ RESOURCE_ENTITY_KEYS = (
     "usage",
     "used",
     "total",
+    "containers_running",
+    "containers_stopped",
+    "container_problems",
+    "guests_running",
+    "guests_stopped",
 )
 RESOURCE_ENTITY_PLATFORMS = ("sensor", "binary_sensor")
 ENTITY_RESOURCE_TYPES = HOST_TYPES | GUEST_TYPES | CONTAINER_TYPES | STORAGE_TYPES | PHYSICAL_DISK_TYPES

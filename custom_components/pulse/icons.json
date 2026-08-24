@@ -1,0 +1,72 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "infrastructure_problem": {
+        "state": {
+          "off": "mdi:shield-check",
+          "on": "mdi:alert-octagon"
+        }
+      },
+      "online": {
+        "default": "mdi:lan-connect"
+      },
+      "running": {
+        "default": "mdi:play-circle"
+      }
+    },
+    "sensor": {
+      "active_alerts": {
+        "default": "mdi:alert"
+      },
+      "containers_running": {
+        "default": "mdi:docker"
+      },
+      "containers_stopped": {
+        "default": "mdi:docker"
+      },
+      "cpu_usage": {
+        "default": "mdi:cpu-64-bit"
+      },
+      "critical_alerts": {
+        "default": "mdi:alert-octagon"
+      },
+      "host_container_problems": {
+        "default": "mdi:alert"
+      },
+      "host_containers_running": {
+        "default": "mdi:docker"
+      },
+      "host_containers_stopped": {
+        "default": "mdi:docker"
+      },
+      "host_guests_running": {
+        "default": "mdi:desktop-tower-monitor"
+      },
+      "host_guests_stopped": {
+        "default": "mdi:desktop-tower-monitor"
+      },
+      "hosts_offline": {
+        "default": "mdi:server-off"
+      },
+      "hosts_online": {
+        "default": "mdi:server"
+      },
+      "overall_status": {
+        "state": {
+          "ok": "mdi:shield-check",
+          "problem": "mdi:alert-octagon",
+          "warning": "mdi:alert"
+        }
+      },
+      "vms_running": {
+        "default": "mdi:desktop-tower-monitor"
+      },
+      "vms_stopped": {
+        "default": "mdi:desktop-tower-monitor"
+      },
+      "warnings": {
+        "default": "mdi:alert-outline"
+      }
+    }
+  }
+}

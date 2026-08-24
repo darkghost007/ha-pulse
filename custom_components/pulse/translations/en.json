@@ -66,11 +66,35 @@
       "containers_running": {"name": "Containers running"},
       "containers_stopped": {"name": "Containers stopped"},
       "cpu_usage": {"name": "CPU usage"},
+      "critical_alerts": {"name": "Critical alerts"},
       "disk_usage": {"name": "Disk usage"},
+      "host_container_problems": {"name": "Container problems"},
+      "host_containers_running": {"name": "Running containers"},
+      "host_containers_stopped": {"name": "Stopped containers"},
+      "host_guests_running": {"name": "Running guests"},
+      "host_guests_stopped": {"name": "Stopped guests"},
       "hosts_offline": {"name": "Hosts offline"},
       "hosts_online": {"name": "Hosts online"},
       "memory_usage": {"name": "Memory usage"},
-      "status": {"name": "Status"},
+      "overall_status": {
+        "name": "Overall status",
+        "state": {
+          "ok": "All systems OK",
+          "warning": "Warning",
+          "problem": "Problem"
+        }
+      },
+      "status": {
+        "name": "Status",
+        "state": {
+          "online": "Online",
+          "degraded": "Degraded",
+          "offline": "Offline",
+          "running": "Running",
+          "stopped": "Stopped",
+          "unknown": "Unknown"
+        }
+      },
       "storage_usage": {"name": "Storage usage"},
       "temperature": {"name": "Temperature"},
       "total": {"name": "Total"},
@@ -78,7 +102,8 @@
       "usage": {"name": "Usage"},
       "used": {"name": "Used"},
       "vms_running": {"name": "VMs running"},
-      "vms_stopped": {"name": "VMs stopped"}
+      "vms_stopped": {"name": "VMs stopped"},
+      "warnings": {"name": "Warnings"}
     },
     "binary_sensor": {
       "infrastructure_problem": {"name": "Infrastructure problem"},

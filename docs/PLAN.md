@@ -404,8 +404,9 @@ Options-Flow: `scan_interval`, `include_guests` (VMs/LXC als Entities, default a
 
 - Alle Prozentwerte als echte `%`-Sensoren mit `state_class: measurement` →
   Progress-Bars und Charts ohne Nachbearbeitung.
-- Gesamtstatus oben: `binary_sensor.pulse_infrastructure_ok` +
-  `sensor.pulse_active_alerts`.
+- Gesamtstatus oben: `sensor.pulse_gesamtstatus`,
+  `sensor.pulse_warnungen`, `sensor.pulse_kritische_alarme` und
+  `binary_sensor.pulse_infrastructure_problem`.
 - Pro Server eine Vulpo-Sektion entlang der HA-Devices (Devices sind bereits
   sauber gruppiert, kein manuelles Entity-Mapping nötig).
 - Entity-Namen über `_attr_has_entity_name = True` + Translation-Keys, damit
