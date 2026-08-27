@@ -30,6 +30,7 @@ from custom_components.pulse.const import (
 from custom_components.pulse.coordinator import (
     PulseDataUpdateCoordinator,
     async_cleanup_removed_resources,
+    _migrate_resource_identity,
     _migrate_resource_unique_ids,
     normalize_state,
 )
@@ -1018,6 +1019,60 @@ def test_alias_migration_updates_existing_registry_unique_id() -> None:
     assert registry.updated == [("sensor.host_cpu_usage", "entry-1_new-id_cpu_usage")]
 
 
+def test_alias_migration_removes_duplicate_instead_of_colliding() -> None:
+    """Belegte Zielkennung darf nicht in DeviceIdentifierCollisionError laufen."""
+
+    old_identifier = (DOMAIN, "entry-1_old-id")
+    new_identifier = (DOMAIN, "entry-1_new-id")
+    registry = FakeRegistry(
+        {
+            ("sensor", DOMAIN, "entry-1_old-id_cpu_usage"): "sensor.host_cpu_usage",
+        }
+    )
+    device_registry = KollisionsDeviceRegistry(old_identifier, new_identifier)
+
+    _migrate_resource_identity(registry, device_registry, "entry-1", "old-id", "new-id")
+
+    # Unique-IDs ziehen um, das Aliasgeraet verschwindet, nichts wird umgeschrieben.
+    assert registry.updated == [("sensor.host_cpu_usage", "entry-1_new-id_cpu_usage")]
+    assert device_registry.removed == ["dev-alias"]
+
+
+def test_coordinator_alias_migration_survives_registry_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ein Registryfehler darf den Poll nicht abbrechen -- sonst faellt alles aus."""
+
+    data = normalize_state(
+        {
+            "resources": [
+                {
+                    "id": "res-new",
+                    "type": "agent",
+                    "status": "online",
+                    "canonicalIdentity": {"primaryId": "new-id", "aliases": ["old-id"]},
+                }
+            ],
+            "activeAlerts": [],
+        }
+    )
+
+    class ExplodierendeDeviceRegistry:
+        def async_get_device(self, _identifiers):
+            raise RuntimeError("Registry kaputt")
+
+    monkeypatch.setattr(
+        "custom_components.pulse.coordinator.er.async_get", lambda _hass: FakeRegistry({})
+    )
+    monkeypatch.setattr(
+        "custom_components.pulse.coordinator.dr.async_get",
+        lambda _hass: ExplodierendeDeviceRegistry(),
+    )
+    coordinator = object.__new__(PulseDataUpdateCoordinator)
+    coordinator.config_entry = _entry()
+    coordinator._hass = SimpleNamespace()
+
+    coordinator._async_migrate_alias_unique_ids(data)
+
+
 def test_coordinator_alias_migration_runs_for_current_data_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
     data = normalize_state(
         {
@@ -1113,6 +1168,33 @@ class FakeRegistry:
 
     def async_update_entity(self, entity_id: str, *, new_unique_id: str) -> None:
         self.updated.append((entity_id, new_unique_id))
+
+
+class FakeDeviceEntry:
+    def __init__(self, device_id: str, identifiers: set) -> None:
+        self.id = device_id
+        self.identifiers = set(identifiers)
+
+
+class KollisionsDeviceRegistry:
+    """Registry, in der Alias- UND Zielkennung je ein eigenes Geraet haben."""
+
+    def __init__(self, old_identifier: tuple, new_identifier: tuple) -> None:
+        self.alias = FakeDeviceEntry("dev-alias", {old_identifier})
+        self.ziel = FakeDeviceEntry("dev-ziel", {new_identifier})
+        self.removed: list[str] = []
+
+    def async_get_device(self, identifiers):
+        for device in (self.alias, self.ziel):
+            if device.identifiers & set(identifiers):
+                return device
+        return None
+
+    def async_update_device(self, *_args, **_kwargs):
+        raise AssertionError("Bei belegter Zielkennung darf nicht umgeschrieben werden")
+
+    def async_remove_device(self, device_id: str) -> None:
+        self.removed.append(device_id)
 
 
 class FakeDeviceRegistry:

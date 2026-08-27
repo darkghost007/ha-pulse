@@ -256,18 +256,30 @@ class PulseDataUpdateCoordinator(DataUpdateCoordinator[PulseData]):
 
         registry = er.async_get(self._hass)
         device_registry = dr.async_get(self._hass)
-        for old_id, new_id in self.config_entry.options.get(CONF_ALIAS_MAP, {}).items():
-            _migrate_resource_identity(registry, device_registry, self.config_entry.entry_id, old_id, new_id)
+        paare = [
+            (old_id, new_id)
+            for old_id, new_id in self.config_entry.options.get(CONF_ALIAS_MAP, {}).items()
+        ]
         for resource in data.resources.values():
             for alias in resource.aliases:
                 if alias != resource.canonical_id:
-                    _migrate_resource_identity(
-                        registry,
-                        device_registry,
-                        self.config_entry.entry_id,
-                        alias,
-                        resource.canonical_id,
-                    )
+                    paare.append((alias, resource.canonical_id))
+        for old_id, new_id in paare:
+            # Registrypflege darf den Poll nicht abbrechen: Diese Methode laeuft
+            # innerhalb von _async_update_data, eine Ausnahme hier setzt die
+            # Entitaeten ALLER Hosts auf unavailable, nicht nur die des
+            # betroffenen. Der Fehler wird gemeldet, die Daten fliessen weiter.
+            try:
+                _migrate_resource_identity(
+                    registry, device_registry, self.config_entry.entry_id, old_id, new_id
+                )
+            except Exception:  # noqa: BLE001 - bewusst breit, siehe Kommentar
+                _LOGGER.warning(
+                    "Identitaetsmigration %s -> %s fehlgeschlagen; Daten werden trotzdem uebernommen",
+                    old_id,
+                    new_id,
+                    exc_info=True,
+                )
 
 
 def normalize_state(payload: dict[str, Any]) -> PulseData:
@@ -859,6 +871,18 @@ def _migrate_resource_identity(
     new_identifier = (DOMAIN, f"{entry_id}_{new_resource_id}")
     old_device = device_registry.async_get_device({old_identifier})
     if old_device is None:
+        return
+    existing = device_registry.async_get_device({new_identifier})
+    if existing is not None and existing.id != old_device.id:
+        # Die Zielkennung haengt bereits an einem anderen Geraet. Ein
+        # async_update_device wuerde hier DeviceIdentifierCollisionError werfen
+        # -- und zwar bei JEDEM Poll, weil die Aliaszuordnung dauerhaft in den
+        # Optionen steht. Belegt am 27.08.2026: Pulse gab demselben Host nach
+        # einer Neuanmeldung eine zweite Identitaet, danach lagen beide
+        # Geraete in der Registry und die ganze Integration stand still.
+        # Die Unique-IDs sind oben bereits umgezogen; was am Aliasgeraet
+        # haengen bleibt, ist Dublette und wird entfernt.
+        device_registry.async_remove_device(old_device.id)
         return
     identifiers = (old_device.identifiers - {old_identifier}) | {new_identifier}
     device_registry.async_update_device(old_device.id, new_identifiers=identifiers)
