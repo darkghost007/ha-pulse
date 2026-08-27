@@ -1866,3 +1866,42 @@ def test_stopped_monitored_container_reaches_host_health_and_warning_count() -> 
     assert health.native_value == OVERALL_STATUS_WARNING
     assert health.extra_state_attributes["alerts"] == ["Tower · vaultwarden · gestoppt"]
     assert warnings.native_value == 1
+
+
+def test_container_alert_counts_via_resolved_identity() -> None:
+    """Der Alarm nennt die Docker-Kennung, nicht die Ressourcen-ID.
+
+    Pulse adressiert Container-Alarme als `docker:<agent>/<hash>`. Wird nur die
+    rohe ID verglichen, zählt ein gestoppter überwachter Container nicht als
+    Container-Problem — und die Meldung nennt ihn nicht.
+    """
+
+    payload = {
+        "resources": [
+            _resource("host-1", "agent", "res-host", "online") | {"displayName": "Tower"},
+            _resource("container-1", "app-container", "res-container-1", "stopped", parent_id="res-host")
+            | {
+                "displayName": "vaultwarden",
+                "docker": {"agentId": "agent-1", "containerId": "container-hash"},
+            },
+        ],
+        "activeAlerts": [
+            {
+                "id": "alert-1",
+                "level": "warning",
+                "type": "docker-container-state",
+                "resourceId": "docker:agent-1/container-hash",
+                "resourceName": "vaultwarden",
+            }
+        ],
+    }
+    entry = _entry(options={CONF_KNOWN_HOSTS: ["host-1"]})
+    coordinator = _coordinator(entry, normalize_state(payload))
+    problems = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "container_problems"),
+    )
+
+    assert problems.native_value == 1
+    assert problems.extra_state_attributes == {"containers": ["vaultwarden · gestoppt"]}

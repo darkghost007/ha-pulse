@@ -1166,10 +1166,17 @@ def _problem_containers(data: PulseData, host_id: str) -> list[PulseResource]:
         if container.host_canonical_id == host_id and _container_has_problem(container)
     }
     for alert in data.alerts:
+        # Über die aufgelöste Kennung, nicht über die rohe: Pulse adressiert
+        # Container-Alarme als `docker:<agent>/<hash>` und trifft damit weder
+        # `resource_id` noch `canonical_id`.
+        resolved = alert.resolved_resource_id
         for container in data.containers.values():
             if container.host_canonical_id != host_id:
                 continue
-            if alert.resource_id in {container.resource_id, container.canonical_id}:
+            if resolved == container.canonical_id or alert.resource_id in {
+                container.resource_id,
+                container.canonical_id,
+            }:
                 problem_ids.add(container.canonical_id)
     return sorted(
         (
