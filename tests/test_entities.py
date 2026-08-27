@@ -1819,3 +1819,50 @@ def test_infrastructure_entries_are_matched_by_agent_id_not_by_name() -> None:
     # host-2 ist unverändert auffällig — sein Spiegeleintrag muss stehen bleiben.
     assert overall.native_value == OVERALL_STATUS_WARNING
     assert overall.extra_state_attributes["infrastructure_issues"] == ["Tower · Warnung"]
+
+
+def test_stopped_monitored_container_reaches_host_health_and_warning_count() -> None:
+    """Ein überwachter Container, der ausgeht, muss eine Meldung erzeugen.
+
+    Pulse meldet das als Alarm `docker-container-state` mit der in
+    `dockerDefaults.statePoweredOffSeverity` konfigurierten Stufe. In Pulse
+    abgeschaltete Container erzeugen diesen Alarm nicht — die Auswahl, was
+    überwacht wird, bleibt damit vollständig in Pulse.
+    """
+
+    payload = {
+        "resources": [
+            _resource("host-1", "agent", "res-host", "online") | {"displayName": "Tower"},
+            _resource("container-1", "app-container", "res-container-1", "stopped", parent_id="res-host")
+            | {
+                "displayName": "vaultwarden",
+                "docker": {"agentId": "agent-1", "containerId": "container-hash", "containerState": "exited"},
+            },
+        ],
+        "activeAlerts": [
+            {
+                "id": "alert-1",
+                "level": "warning",
+                "type": "docker-container-state",
+                "resourceId": "docker:agent-1/container-hash",
+                "resourceName": "vaultwarden",
+            }
+        ],
+    }
+    entry = _entry(options={CONF_KNOWN_HOSTS: ["host-1"]})
+    data = normalize_state(payload)
+    coordinator = _coordinator(entry, data)
+    health = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "health"),
+    )
+    warnings = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "warnings"),
+    )
+
+    assert data.alerts[0].resolved_host_id == "host-1"
+    assert health.native_value == OVERALL_STATUS_WARNING
+    assert health.extra_state_attributes["alerts"] == ["Tower · vaultwarden · gestoppt"]
+    assert warnings.native_value == 1

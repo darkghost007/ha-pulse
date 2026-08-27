@@ -9,7 +9,7 @@ Devices und Entities ab.
 
 ## Status
 
-Version 0.9.2 für Pulse 6.3.1. Die Integration ist read-only und nutzt
+Version 0.9.3 für Pulse 6.3.1. Die Integration ist read-only und nutzt
 den Header `X-API-Token` mit einem Token, der nur den Scope `monitoring:read`
 benötigt.
 
@@ -106,6 +106,12 @@ Fallback `connectionHealth`.
 Tokens, rohe aiohttp-Objekte und API-Rohpayloads werden nicht geloggt. Diagnostics
 werden aus einer Allowlist synthetisiert und enthalten keine echten Hostnamen,
 IPs, Pfade, Tags, Alert-Texte oder Tokens.
+
+Ein überwachter Container, der ausgeht, erzeugt eine Meldung: Pulse meldet das
+als Alarm `docker-container-state`, der Alarm zieht den Gerätestatus des Hosts
+auf `warning` und erhöht den Warnungszähler. Welche Container überwacht werden,
+entscheidet allein Pulse — in Pulse abgeschaltete Container erzeugen keinen
+Alarm und tauchen deshalb auch in Home Assistant nicht auf.
 
 ## Bekannte Einschränkungen
 
