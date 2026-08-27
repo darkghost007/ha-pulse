@@ -175,7 +175,6 @@ async def test_risk_code_options_use_pulse_summaries(hass) -> None:
                     "status": "degraded",
                     "parentId": "res-host",
                     "canonicalIdentity": {"primaryId": "pool-1", "aliases": []},
-                    "disk": {"current": 50, "used": 50, "total": 100, "free": 50},
                     "storage": {
                         "type": "unraid-array",
                         "risk": {
@@ -195,6 +194,8 @@ async def test_risk_code_options_use_pulse_summaries(hass) -> None:
     )
     entry.runtime_data = coordinator
 
+    # Der Array-Schatten bekommt keine Entity, trägt aber genau das Risiko.
+    assert "pool-1" in coordinator.data.hidden_storages
     assert PulseOptionsFlow(entry)._risk_code_options() == [
         {"value": "altes_risiko", "label": "altes_risiko"},
         {"value": "unraid_no_parity", "label": "Unraid array is running without parity protection"},

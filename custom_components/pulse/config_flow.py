@@ -342,13 +342,15 @@ class PulseOptionsFlow(config_entries.OptionsFlow):
 
         Bereits abgewählte Codes bleiben in der Liste, auch wenn Pulse sie
         gerade nicht meldet — sonst verschwände die Auswahl beim nächsten
-        Öffnen der Optionen.
+        Öffnen der Optionen. Die übersprungenen Pools zählen mit: gerade der
+        leere Array-Schatten trägt das Risiko, um das es geht.
         """
 
         labels = {code: code for code in self._entry.options.get(CONF_IGNORED_RISK_CODES, [])}
         coordinator = self._entry.runtime_data if hasattr(self._entry, "runtime_data") else None
         if isinstance(coordinator, PulseDataUpdateCoordinator) and coordinator.data is not None:
-            for storage in coordinator.data.storages.values():
+            storages = (*coordinator.data.storages.values(), *coordinator.data.hidden_storages.values())
+            for storage in storages:
                 for reason in storage.risk_reasons:
                     labels[reason.code] = reason.summary or reason.code
         return [SelectOptionDict(value=code, label=label) for code, label in sorted(labels.items())]
