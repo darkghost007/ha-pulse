@@ -620,6 +620,13 @@ def test_container_problems_use_docker_health_and_oom_fields() -> None:
             | {"platformData": {"oomKilled": True}},
             _resource("container-3", "app-container", "res-container-3", "running", parent_id="res-member")
             | {"docker": {"health": "healthy"}},
+            # Docker friert `health` beim Stoppen ein — ein seit Wochen
+            # gestoppter Container bliebe sonst dauerhaft ein Problem.
+            _resource("container-4", "app-container", "res-container-4", "stopped", parent_id="res-member")
+            | {"docker": {"health": "unhealthy", "containerState": "exited"}, "displayName": "container-4"},
+            # Ein gestoppter Container, den der Kernel abgeschossen hat, zählt weiter.
+            _resource("container-5", "app-container", "res-container-5", "stopped", parent_id="res-member")
+            | {"docker": {"health": "unhealthy", "oomKilled": True}, "displayName": "container-5"},
         ]
     )
     data = normalize_state(payload)
@@ -631,7 +638,9 @@ def test_container_problems_use_docker_health_and_oom_fields() -> None:
         next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "container_problems"),
     )
 
-    assert problems.native_value == 2
+    assert problems.native_value == 3
+    assert "container-4" not in str(problems.extra_state_attributes)
+    assert "container-5" in str(problems.extra_state_attributes)
 
 
 def test_pulse_infrastructure_health_flows_into_overall_status() -> None:

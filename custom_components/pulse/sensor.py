@@ -1169,7 +1169,10 @@ def _container_problem_details(data: PulseData, host_id: str) -> list[str]:
 
 def _container_has_problem(container: PulseResource) -> bool:
     health = (container.docker_health or "").lower()
-    if health and health not in {"healthy", "none", "unknown"}:
+    # Docker friert `health` beim Stoppen auf dem letzten Prüfergebnis ein. Bei
+    # einem gestoppten Container ist der Wert Wochen alt und beschreibt keinen
+    # laufenden Fehler — nur laufende Container werden daran gemessen.
+    if container.is_running and health and health not in {"healthy", "none", "unknown"}:
         return True
     if container.docker_oom_killed:
         return True

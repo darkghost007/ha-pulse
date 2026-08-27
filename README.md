@@ -9,7 +9,7 @@ Devices und Entities ab.
 
 ## Status
 
-Version 0.9.0 für Pulse 6.3.1. Die Integration ist read-only und nutzt
+Version 0.9.1 für Pulse 6.3.1. Die Integration ist read-only und nutzt
 den Header `X-API-Token` mit einem Token, der nur den Scope `monitoring:read`
 benötigt.
 
@@ -102,6 +102,12 @@ werden aus einer Allowlist synthetisiert und enthalten keine echten Hostnamen,
 IPs, Pfade, Tags, Alert-Texte oder Tokens.
 
 ## Bekannte Einschränkungen
+
+Docker friert `health` beim Stoppen auf dem letzten Prüfergebnis ein. Ein seit
+Wochen gestoppter Container meldet deshalb weiter `unhealthy`. Der Zähler
+`Container-Probleme` misst `health` nur an laufenden Containern; ein
+OOM-Abschuss oder ein unerwarteter Zustand zählt unabhängig davon.
+
 
 Libvirt-Gäste können in Pulse `memory.current=100` mit `used == total` und
 `free == 0` melden, obwohl keine verwertbaren Balloon-Werte vorliegen. Die
