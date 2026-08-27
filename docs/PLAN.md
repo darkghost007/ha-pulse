@@ -368,6 +368,11 @@ Options-Flow: `scan_interval`, `include_guests` (VMs/LXC als Entities, default a
 `critical_hosts_mode` (`all` = alle aktuellen und zukünftigen Hosts, Default |
 `selected`) und, nur bei `selected`, `critical_hosts` (Mehrfachauswahl).
 
+`ignored_risk_codes` (Mehrfachauswahl, seit 0.8.0): Risiko-Gründe, die Pulse an
+einem Pool meldet und die bewusst hingenommen werden. Die Auswahl kommt aus den
+Gründen, die die eigene Instanz gerade meldet (`storage.risk.reasons[].code`),
+plus den bereits abgewählten Codes.
+
 ---
 
 ## 5. Fehlerbehandlung

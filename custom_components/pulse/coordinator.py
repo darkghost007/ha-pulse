@@ -67,6 +67,15 @@ RESOURCE_ENTITY_PLATFORMS = ("sensor", "binary_sensor")
 ENTITY_RESOURCE_TYPES = HOST_TYPES | GUEST_TYPES | CONTAINER_TYPES | STORAGE_TYPES
 
 
+@dataclass(frozen=True, slots=True)
+class PulseRiskReason:
+    """Ein Risiko-Grund, den Pulse an einer Ressource meldet."""
+
+    code: str
+    severity: str | None
+    summary: str | None
+
+
 @dataclass(slots=True)
 class PulseResource:
     """Normalisierte Pulse-Ressource."""
@@ -101,6 +110,7 @@ class PulseResource:
     disk_write_rate: float | None = None
     docker_health: str | None = None
     docker_oom_killed: bool | None = None
+    risk_reasons: tuple[PulseRiskReason, ...] = ()
 
     @property
     def is_running(self) -> bool:
@@ -161,6 +171,10 @@ class PulseData:
     containers: dict[str, PulseResource]
     storages: dict[str, PulseResource]
     physical_disks: dict[str, PulseResource]
+    #: Pools ohne eigene Entity — leere Array-Schatten und Unraid-Mitglieder.
+    #: Pulse rollt ihren Status trotzdem auf den Agenten hoch, deshalb bleiben
+    #: sie für die Ursachenfrage erhalten.
+    hidden_storages: dict[str, PulseResource]
     alerts: list[PulseAlert]
     summary: PulseSummary
     last_update: datetime | None
@@ -285,6 +299,7 @@ def normalize_state(payload: dict[str, Any]) -> PulseData:
     guests: dict[str, PulseResource] = {}
     containers: dict[str, PulseResource] = {}
     storages: dict[str, PulseResource] = {}
+    hidden_storages: dict[str, PulseResource] = {}
     physical_disks: dict[str, PulseResource] = {}
     ignored_types: dict[str, int] = {}
     removed_resource_ids: set[str] = set()
@@ -310,6 +325,7 @@ def normalize_state(payload: dict[str, Any]) -> PulseData:
             if _should_skip_storage(raw, model):
                 ignored_types[resource_type or "missing"] = ignored_types.get(resource_type or "missing", 0) + 1
                 removed_resource_ids.add(model.canonical_id)
+                hidden_storages[model.canonical_id] = model
                 continue
             storages[model.canonical_id] = model
         elif resource_type in PHYSICAL_DISK_TYPES:
@@ -369,6 +385,7 @@ def normalize_state(payload: dict[str, Any]) -> PulseData:
         containers=containers,
         storages=storages,
         physical_disks=physical_disks,
+        hidden_storages=hidden_storages,
         alerts=alerts,
         summary=summary,
         last_update=parse_pulse_time(payload.get("lastUpdate")),
@@ -448,7 +465,38 @@ def _resource_from_raw(
         docker_oom_killed=_boolish(docker.get("oomKilled"))
         if _boolish(docker.get("oomKilled")) is not None
         else _boolish(platform_data.get("oomKilled")),
+        risk_reasons=_risk_reasons(raw),
     )
+
+
+def _risk_reasons(raw: dict[str, Any]) -> tuple[PulseRiskReason, ...]:
+    """Risiko-Gründe einer Ressource.
+
+    Pulse führt den Block sowohl unter `storage` als auch gespiegelt unter
+    `platformData`; ein Grund ohne `code` ist nicht abwählbar und entfällt.
+    """
+
+    for container in (raw.get("storage"), raw.get("platformData")):
+        if not isinstance(container, dict):
+            continue
+        risk = container.get("risk")
+        if not isinstance(risk, dict):
+            continue
+        reasons = risk.get("reasons")
+        if not isinstance(reasons, list):
+            continue
+        found = tuple(
+            PulseRiskReason(
+                code=_string(item.get("code")),
+                severity=_string(item.get("severity")),
+                summary=_string(item.get("summary")),
+            )
+            for item in reasons
+            if isinstance(item, dict) and _string(item.get("code"))
+        )
+        if found:
+            return found
+    return ()
 
 
 def _host_canonical_id(

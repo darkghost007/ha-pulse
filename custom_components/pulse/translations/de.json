@@ -55,7 +55,8 @@
           "include_guests": "VMs als Entities anlegen",
           "include_docker_containers": "Docker-Container als Entities anlegen",
           "critical_hosts_mode": "Kritische Hosts",
-          "critical_hosts": "Ausgewählte kritische Hosts"
+          "critical_hosts": "Ausgewählte kritische Hosts",
+          "ignored_risk_codes": "Ignorierte Risiko-Gründe"
         }
       }
     }

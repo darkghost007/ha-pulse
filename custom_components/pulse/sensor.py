@@ -25,6 +25,7 @@ from .const import (
     CONF_ALIAS_MAP,
     CONF_CRITICAL_HOSTS,
     CONF_CRITICAL_HOSTS_MODE,
+    CONF_IGNORED_RISK_CODES,
     CONF_INCLUDE_CONTAINERS,
     CONF_INCLUDE_GUESTS,
     CONF_KNOWN_HOSTS,
@@ -515,7 +516,7 @@ class PulseSummarySensor(PulseEntity, SensorEntity):
         if self.entity_description.key == "warnings":
             if "alerts" in data.stale:
                 return None
-            return len(_warning_alerts(data)) + len(_warning_hosts(data))
+            return len(_warning_alerts(data)) + len(_warning_hosts(data, self._entry))
         if self.entity_description.key == "critical_alerts":
             if "alerts" in data.stale:
                 return None
@@ -537,7 +538,7 @@ class PulseSummarySensor(PulseEntity, SensorEntity):
                 *attrs["alerts"],
                 *(
                     _resource_attribute(host, host.status or "degraded")
-                    for host in _warning_hosts(data)
+                    for host in _warning_hosts(data, self._entry)
                 ),
             ]
             return attrs
@@ -559,7 +560,7 @@ class PulseSummarySensor(PulseEntity, SensorEntity):
             "triggering_alerts": alert_attrs["alerts"],
             "triggering_alerts_truncated": alert_attrs["truncated"],
             "unassigned_alerts": alert_attrs["unassigned"],
-            "infrastructure_issues": _infrastructure_issue_labels(data),
+            "infrastructure_issues": _infrastructure_issue_labels(data, self._entry),
         }
 
 
@@ -606,7 +607,7 @@ class PulseHostSensor(PulseHostEntity, PulseResourceSensor):
             data = self.coordinator.data
             if data is None:
                 return None
-            return _host_health_value(data, self.current_resource_id)
+            return _host_health_value(data, self.current_resource_id, self._entry)
         if self.entity_description.key == "temperature":
             data = self.coordinator.data
             if data is None or "resources" in data.stale:
@@ -658,7 +659,7 @@ class PulseHostSensor(PulseHostEntity, PulseResourceSensor):
         if data is None:
             return None
         if self.entity_description.key == "health":
-            return _host_health_attributes(data, self.current_resource_id)
+            return _host_health_attributes(data, self.current_resource_id, self._entry)
         if self.entity_description.key == "disk_temperature":
             return {"disks": _host_disk_temperatures(data, self.current_resource_id)}
         if self.entity_description.key == "container_problems":
@@ -736,9 +737,10 @@ def _critical_host_ids(data: PulseData, entry: ConfigEntry) -> set[str]:
     return remap_alias_ids(set(entry.options.get(CONF_KNOWN_HOSTS, [])) | set(data.hosts), alias_map)
 
 
-def _host_health_value(data: PulseData, host_id: str) -> str | None:
+def _host_health_value(data: PulseData, host_id: str, entry: ConfigEntry) -> str | None:
     if "resources" in data.stale or "alerts" in data.stale:
         return None
+    ignored = _ignored_risk_codes(entry)
     host = data.hosts.get(host_id)
     if host is None or not host.is_host_online:
         return OVERALL_STATUS_PROBLEM
@@ -746,22 +748,23 @@ def _host_health_value(data: PulseData, host_id: str) -> str | None:
         return OVERALL_STATUS_PROBLEM
     if any(_disk_problem_severity(disk) == OVERALL_STATUS_PROBLEM for disk in _host_disks(data, host_id)):
         return OVERALL_STATUS_PROBLEM
-    if not host.is_host_healthy:
+    if not host.is_host_healthy and not _host_degradation_ignored(data, host_id, ignored):
         return OVERALL_STATUS_WARNING
     if any(alert.level == "warning" for alert in _host_alerts(data, host_id)):
         return OVERALL_STATUS_WARNING
-    if any(storage.status != "online" for storage in _host_storages(data, host_id)):
+    if _problem_storages(data, host_id, ignored):
         return OVERALL_STATUS_WARNING
     if any(_disk_problem_severity(disk) == OVERALL_STATUS_WARNING for disk in _host_disks(data, host_id)):
         return OVERALL_STATUS_WARNING
     return OVERALL_STATUS_OK
 
 
-def _host_health_attributes(data: PulseData, host_id: str) -> dict[str, Any]:
+def _host_health_attributes(data: PulseData, host_id: str, entry: ConfigEntry) -> dict[str, Any]:
     alert_attrs = _alert_list_attributes(
         data,
         [alert for alert in _host_alerts(data, host_id) if alert.level in {"warning", "critical"}],
     )
+    ignored = _ignored_risk_codes(entry)
     triggering_resources: list[str] = []
     host = data.hosts.get(host_id)
     if "resources" not in data.stale:
@@ -769,12 +772,11 @@ def _host_health_attributes(data: PulseData, host_id: str) -> dict[str, Any]:
             triggering_resources.append(f"{host_id} · {STATUS_LABELS['missing']}")
         elif not host.is_host_online:
             triggering_resources.append(_resource_attribute(host, "offline"))
-        elif not host.is_host_healthy:
+        elif not host.is_host_healthy and not _host_degradation_ignored(data, host_id, ignored):
             triggering_resources.append(_resource_attribute(host, "degraded"))
         triggering_resources.extend(
             f"Pool {storage.name} · {STATUS_LABELS.get(storage.status or 'unknown', storage.status)}"
-            for storage in _host_storages(data, host_id)
-            if storage.status != "online"
+            for storage in _problem_storages(data, host_id, ignored)
         )
         triggering_resources.extend(
             f"Platte {disk.name} · {disk.disk_health or STATUS_LABELS['unknown']}"
@@ -787,17 +789,42 @@ def _host_health_attributes(data: PulseData, host_id: str) -> dict[str, Any]:
         "truncated": alert_attrs["truncated"],
         "unassigned": alert_attrs["unassigned"],
         "triggering_resources": triggering_resources,
+        "ignored_risks": _ignored_risk_details(data, host_id, ignored),
     }
 
 
-def _infrastructure_issue_labels(data: PulseData) -> list[str]:
+def _infrastructure_issues(data: PulseData, entry: ConfigEntry) -> list[dict[str, Any]]:
+    """Verbindungseinträge ohne die, deren Host-Warnung abgewählt ist.
+
+    `connectedInfrastructure` spiegelt denselben Zustand noch einmal, nur über
+    den Namen verknüpft. Ohne diese Spiegelung mitzufiltern bliebe der
+    Gesamtstatus auf Warnung stehen, obwohl der Host als OK gilt. Echte
+    Ausfälle (`problem`) bleiben in jedem Fall stehen.
+    """
+
+    ignored = _ignored_risk_codes(entry)
+    if not ignored:
+        return data.infrastructure_issues
+    muted = {
+        host.name
+        for host_id, host in data.hosts.items()
+        if not host.is_host_healthy and _host_degradation_ignored(data, host_id, ignored)
+    }
+    return [
+        issue
+        for issue in data.infrastructure_issues
+        if issue["problem"] or issue.get("name") not in muted
+    ]
+
+
+def _infrastructure_issue_labels(data: PulseData, entry: ConfigEntry) -> list[str]:
     """Verbindungsprobleme als kurze Zeilen.
 
     Die interne Struktur bleibt unangetastet — die Statuslogik wertet dort
     `problem` aus. Formatiert wird erst an der Attributgrenze.
     """
     output: list[str] = []
-    for issue in data.infrastructure_issues:
+    for issue in _infrastructure_issues(data, entry):
         status = issue.get("status") or "unknown"
         label = STATUS_LABELS.get(status, status)
         marker = "Problem: " if issue.get("problem") else ""
@@ -831,10 +858,82 @@ def _problem_hosts(data: PulseData, entry: ConfigEntry) -> list[str]:
     return output
 
 
-def _warning_hosts(data: PulseData) -> list[PulseResource]:
+def _ignored_risk_codes(entry: ConfigEntry) -> frozenset[str]:
+    return frozenset(entry.options.get(CONF_IGNORED_RISK_CODES, []))
+
+
+def _risk_ignored(resource: PulseResource, ignored: frozenset[str]) -> bool:
+    """Ressource, deren sämtliche Risiko-Gründe abgewählt sind.
+
+    Bewusst alle: kommt zu einem abgewählten Grund ein zweiter hinzu — etwa eine
+    fehlende Platte neben der fehlenden Parität —, ist die Warnung wieder echt.
+    """
+
+    codes = {reason.code for reason in resource.risk_reasons}
+    return bool(codes) and codes <= ignored
+
+
+def _problem_storages(data: PulseData, host_id: str, ignored: frozenset[str]) -> list[PulseResource]:
+    return [
+        storage
+        for storage in _host_storages(data, host_id)
+        if storage.status != "online" and not _risk_ignored(storage, ignored)
+    ]
+
+
+def _degraded_host_storages(data: PulseData, host_id: str) -> list[PulseResource]:
+    """Alle nicht gesunden Pools eines Hosts, auch die ohne eigene Entity.
+
+    Ein übersprungener Array-Schatten bekommt keine Entity, wird von Pulse aber
+    trotzdem auf den Agenten hochgerollt — für die Ursachenfrage zählt er mit.
+    """
+
+    return [
+        storage
+        for storage in (*data.storages.values(), *data.hidden_storages.values())
+        if storage.host_canonical_id == host_id and storage.status != "online"
+    ]
+
+
+def _host_degradation_ignored(data: PulseData, host_id: str, ignored: frozenset[str]) -> bool:
+    """Ist der Host nur wegen abgewählter Risiken beeinträchtigt?
+
+    Pulse rollt den schlechtesten Kindstatus auf den Agenten hoch, nennt am
+    Agenten selbst aber keinen Grund. Die Abwahl greift deshalb nur, wenn
+    mindestens ein abgewähltes Kind existiert und kein anderes Kind auffällig
+    ist — sonst würde ein echtes Problem mit stumm geschaltet.
+    """
+
+    if not ignored:
+        return False
+    degraded = _degraded_host_storages(data, host_id)
+    if not degraded or any(not _risk_ignored(storage, ignored) for storage in degraded):
+        return False
+    return all(_disk_problem_severity(disk) is None for disk in _host_disks(data, host_id))
+
+
+def _ignored_risk_details(data: PulseData, host_id: str, ignored: frozenset[str]) -> list[str]:
+    """Was wegen der Abwahl nicht als Warnung gilt — sonst wäre die Stille blind."""
+
+    return [
+        f"{storage.name} · {reason.summary or reason.code}"
+        for storage in _degraded_host_storages(data, host_id)
+        if _risk_ignored(storage, ignored)
+        for reason in storage.risk_reasons
+    ]
+
+
+def _warning_hosts(data: PulseData, entry: ConfigEntry) -> list[PulseResource]:
     if "resources" in data.stale:
         return []
-    return [host for host in data.hosts.values() if host.is_host_online and not host.is_host_healthy]
+    ignored = _ignored_risk_codes(entry)
+    return [
+        host
+        for host_id, host in data.hosts.items()
+        if host.is_host_online
+        and not host.is_host_healthy
+        and not _host_degradation_ignored(data, host_id, ignored)
+    ]
 
 
 def _warning_alerts(data: PulseData) -> list:
@@ -856,11 +955,12 @@ def _overall_status(data: PulseData, entry: ConfigEntry) -> str | None:
         return None
     if _problem_hosts(data, entry) or _critical_alerts(data):
         return OVERALL_STATUS_PROBLEM
-    if any(issue["problem"] for issue in data.infrastructure_issues):
+    issues = _infrastructure_issues(data, entry)
+    if any(issue["problem"] for issue in issues):
         return OVERALL_STATUS_PROBLEM
-    if _warning_hosts(data) or _warning_alerts(data):
+    if _warning_hosts(data, entry) or _warning_alerts(data):
         return OVERALL_STATUS_WARNING
-    if data.infrastructure_issues:
+    if issues:
         return OVERALL_STATUS_WARNING
     return OVERALL_STATUS_OK
 
@@ -869,7 +969,7 @@ def _triggering_hosts(data: PulseData, entry: ConfigEntry) -> list[str]:
     hosts = _problem_hosts(data, entry)
     hosts.extend(
         _resource_attribute(host, host.status or "unknown")
-        for host in _warning_hosts(data)
+        for host in _warning_hosts(data, entry)
     )
     return hosts
 

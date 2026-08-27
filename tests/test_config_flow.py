@@ -2,14 +2,31 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 import voluptuous as vol
+
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from homeassistant.const import CONF_API_TOKEN, CONF_HOST
 
 from custom_components.pulse.api import PulseAuthError, PulseConnectionError
-from custom_components.pulse.config_flow import PulseConfigFlow, ValidationResult, entry_unique_id, normalize_url
-from custom_components.pulse.const import CONF_SCAN_INTERVAL, CONF_VERIFY_SSL, DEFAULT_SCAN_INTERVAL
+from custom_components.pulse.config_flow import (
+    PulseConfigFlow,
+    PulseOptionsFlow,
+    ValidationResult,
+    entry_unique_id,
+    normalize_url,
+)
+from custom_components.pulse.const import (
+    CONF_IGNORED_RISK_CODES,
+    CONF_SCAN_INTERVAL,
+    CONF_VERIFY_SSL,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+)
+from custom_components.pulse.coordinator import PulseDataUpdateCoordinator, normalize_state
 
 
 @pytest.mark.parametrize(
@@ -117,3 +134,80 @@ async def test_reauth_error_mapping(
 
     assert result["type"] == "form"
     assert result["errors"] == {"base": expected}
+
+
+def _options_flow(options: dict, data=None) -> PulseOptionsFlow:
+    entry = SimpleNamespace(
+        entry_id="entry-1",
+        data={CONF_HOST: "https://pulse.example", CONF_API_TOKEN: "secret-token"},
+        options=options,
+        runtime_data=SimpleNamespace(data=data),
+    )
+    return PulseOptionsFlow(entry)
+
+
+@pytest.mark.asyncio
+async def test_risk_code_options_use_pulse_summaries(hass) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_HOST: "https://pulse.example",
+            CONF_API_TOKEN: "secret-token",
+            CONF_VERIFY_SSL: True,
+            CONF_SCAN_INTERVAL: 60,
+        },
+        options={CONF_IGNORED_RISK_CODES: ["altes_risiko"]},
+    )
+    entry.add_to_hass(hass)
+    coordinator = PulseDataUpdateCoordinator(hass, entry)
+    coordinator.data = normalize_state(
+        {
+            "resources": [
+                {
+                    "id": "res-host",
+                    "type": "agent",
+                    "status": "degraded",
+                    "canonicalIdentity": {"primaryId": "host-1", "aliases": []},
+                },
+                {
+                    "id": "res-pool",
+                    "type": "storage",
+                    "status": "degraded",
+                    "parentId": "res-host",
+                    "canonicalIdentity": {"primaryId": "pool-1", "aliases": []},
+                    "disk": {"current": 50, "used": 50, "total": 100, "free": 50},
+                    "storage": {
+                        "type": "unraid-array",
+                        "risk": {
+                            "reasons": [
+                                {
+                                    "code": "unraid_no_parity",
+                                    "severity": "warning",
+                                    "summary": "Unraid array is running without parity protection",
+                                }
+                            ]
+                        },
+                    },
+                },
+            ],
+            "activeAlerts": [],
+        }
+    )
+    entry.runtime_data = coordinator
+
+    assert PulseOptionsFlow(entry)._risk_code_options() == [
+        {"value": "altes_risiko", "label": "altes_risiko"},
+        {"value": "unraid_no_parity", "label": "Unraid array is running without parity protection"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_options_keep_ignored_risk_codes_when_the_field_is_absent() -> None:
+    """Ohne Risiko-Gründe im Payload fehlt das Feld — die Abwahl muss bleiben."""
+
+    flow = _options_flow({CONF_IGNORED_RISK_CODES: ["unraid_no_parity"]})
+    flow._risk_code_options = lambda: []
+
+    result = await flow.async_step_init({CONF_SCAN_INTERVAL: 60})
+
+    assert result["data"][CONF_IGNORED_RISK_CODES] == ["unraid_no_parity"]

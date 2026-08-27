@@ -9,7 +9,7 @@ Devices und Entities ab.
 
 ## Status
 
-Version 0.7.2 für Pulse 6.3.1. Die Integration ist read-only und nutzt
+Version 0.8.0 für Pulse 6.3.1. Die Integration ist read-only und nutzt
 den Header `X-API-Token` mit einem Token, der nur den Scope `monitoring:read`
 benötigt.
 
@@ -33,6 +33,10 @@ eine explizite Bestätigung, weil Token und Infrastruktur-Topologie unverschlüs
   reale Pulse-Instanzen sehr viele Container-Ressourcen liefern können.
 - `critical_hosts_mode`: Entweder alle aktuellen und zukünftigen Hosts oder eine
   explizite Auswahl für den Gesamtproblem-Sensor.
+- `ignored_risk_codes`: Risiko-Gründe, die Pulse an einem Pool meldet, aber die
+  bewusst hingenommen werden — etwa `unraid_no_parity` bei einem Array, das
+  absichtlich ohne Parität läuft. Die Auswahl listet die Gründe, die die eigene
+  Instanz gerade meldet.
 
 ## Was wird angezeigt
 
@@ -40,6 +44,16 @@ Pro Host steht in der Hauptansicht ein Gerätestatus `ok`, `warning` oder
 `problem`. Er fasst Erreichbarkeit, Pulse-Warnungen, kritische Alarme und den
 Status zugehöriger Pools zusammen; die auslösenden Ressourcen und Alarme stehen
 als Attribute für die Detailansicht bereit.
+
+Sind sämtliche Risiko-Gründe eines Pools über `ignored_risk_codes` abgewählt,
+zählt dieser Pool nicht mehr als Warnung. Ein Host, den Pulse allein wegen
+dieses Pools als `degraded` führt, gilt dann ebenfalls als `ok` — aber nur,
+solange kein anderes Kind auffällig ist. Pulse nennt am Agenten selbst keinen
+Grund; die Abwahl gilt deshalb bewusst nicht, sobald ein weiterer Pool, eine
+Platte oder ein Alarm dazukommt. Der rohe Statussensor zeigt weiterhin, was
+Pulse meldet, und das Attribut `ignored_risks` benennt, was abgewählt wurde.
+Der Spiegeleintrag aus `connectedInfrastructure` wird für denselben Host
+mitgefiltert; ein echter Ausfall dort bleibt unabhängig davon stehen.
 
 Alarme werden über alle bekannten Pulse-Kennungen der Ressource aufgelöst,
 einschließlich Docker-IDs im Format `docker:<agent>/<container>`. Die

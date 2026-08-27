@@ -55,7 +55,8 @@
           "include_guests": "Create entities for VMs",
           "include_docker_containers": "Create entities for Docker containers",
           "critical_hosts_mode": "Critical hosts",
-          "critical_hosts": "Selected critical hosts"
+          "critical_hosts": "Selected critical hosts",
+          "ignored_risk_codes": "Ignored risk reasons"
         }
       }
     }

@@ -31,6 +31,7 @@ from .api import PulseApiClient, PulseApiError, PulseAuthError, PulseConnectionE
 from .const import (
     CONF_CRITICAL_HOSTS,
     CONF_CRITICAL_HOSTS_MODE,
+    CONF_IGNORED_RISK_CODES,
     CONF_ALIAS_MAP,
     CONF_INCLUDE_CONTAINERS,
     CONF_INCLUDE_GUESTS,
@@ -255,6 +256,10 @@ class PulseOptionsFlow(config_entries.OptionsFlow):
             for hidden_key in (CONF_KNOWN_HOSTS, CONF_ALIAS_MAP):
                 if hidden_key in self._entry.options:
                     options[hidden_key] = self._entry.options[hidden_key]
+            if CONF_IGNORED_RISK_CODES not in options and CONF_IGNORED_RISK_CODES in self._entry.options:
+                # Ohne Risiko-Gründe im Payload fehlt das Feld im Formular — die
+                # Abwahl darf dadurch nicht verloren gehen.
+                options[CONF_IGNORED_RISK_CODES] = self._entry.options[CONF_IGNORED_RISK_CODES]
             return self.async_create_entry(title="", data=options)
 
         return self.async_show_form(
@@ -265,6 +270,7 @@ class PulseOptionsFlow(config_entries.OptionsFlow):
     def _schema(self) -> vol.Schema:
         options = self._entry.options
         host_options = self._host_options()
+        risk_options = self._risk_code_options()
         schema: dict[Any, Any] = {
             vol.Required(
                 CONF_SCAN_INTERVAL,
@@ -307,6 +313,19 @@ class PulseOptionsFlow(config_entries.OptionsFlow):
                     mode=SelectSelectorMode.LIST,
                 )
             )
+        if risk_options:
+            schema[
+                vol.Optional(
+                    CONF_IGNORED_RISK_CODES,
+                    default=options.get(CONF_IGNORED_RISK_CODES, []),
+                )
+            ] = SelectSelector(
+                SelectSelectorConfig(
+                    options=risk_options,
+                    multiple=True,
+                    mode=SelectSelectorMode.LIST,
+                )
+            )
         return vol.Schema(schema)
 
     def _host_options(self) -> list[SelectOptionDict]:
@@ -317,6 +336,22 @@ class PulseOptionsFlow(config_entries.OptionsFlow):
             SelectOptionDict(value=host.canonical_id, label=host.name)
             for host in sorted(coordinator.data.hosts.values(), key=lambda item: item.name)
         ]
+
+    def _risk_code_options(self) -> list[SelectOptionDict]:
+        """Auswahl der Risiko-Gründe, die Pulse aktuell meldet.
+
+        Bereits abgewählte Codes bleiben in der Liste, auch wenn Pulse sie
+        gerade nicht meldet — sonst verschwände die Auswahl beim nächsten
+        Öffnen der Optionen.
+        """
+
+        labels = {code: code for code in self._entry.options.get(CONF_IGNORED_RISK_CODES, [])}
+        coordinator = self._entry.runtime_data if hasattr(self._entry, "runtime_data") else None
+        if isinstance(coordinator, PulseDataUpdateCoordinator) and coordinator.data is not None:
+            for storage in coordinator.data.storages.values():
+                for reason in storage.risk_reasons:
+                    labels[reason.code] = reason.summary or reason.code
+        return [SelectOptionDict(value=code, label=label) for code, label in sorted(labels.items())]
 
 
 def _user_schema() -> vol.Schema:

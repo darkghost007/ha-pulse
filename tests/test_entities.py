@@ -20,6 +20,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.pulse import binary_sensor, sensor
 from custom_components.pulse.const import (
     CONF_ALIAS_MAP,
+    CONF_IGNORED_RISK_CODES,
     CONF_INCLUDE_CONTAINERS,
     CONF_KNOWN_HOSTS,
     CONF_SCAN_INTERVAL,
@@ -1426,3 +1427,211 @@ def test_container_problem_sensor_names_the_containers() -> None:
     containers = entity.extra_state_attributes["containers"]
     assert len(containers) == entity.native_value
     assert all(isinstance(line, str) for line in containers)
+
+
+def _risk_payload(
+    *,
+    host_status: str = "degraded",
+    risk_codes: tuple[str, ...] = ("unraid_no_parity",),
+    extra_storage_status: str | None = None,
+) -> dict:
+    """Host, der nur über ein Speicher-Risiko beeinträchtigt ist.
+
+    Pulse rollt den schlechtesten Kindstatus auf den Agenten hoch, nennt am
+    Agenten aber keinen Grund — genau diese Konstellation bildet der Payload ab.
+    """
+    resources = [
+        _resource("host-1", "agent", "res-host", host_status),
+        _resource("pool-1", "storage", "res-pool", "degraded", parent_id="res-host")
+        | {
+            "displayName": "pool-1",
+            "storage": {
+                "type": "unraid-array",
+                "risk": {
+                    "level": "warning",
+                    "reasons": [
+                        {
+                            "code": code,
+                            "severity": "warning",
+                            "summary": f"Grund {code}",
+                        }
+                        for code in risk_codes
+                    ],
+                },
+            },
+        },
+    ]
+    if extra_storage_status is not None:
+        resources.append(
+            _resource("pool-2", "storage", "res-pool-2", extra_storage_status, parent_id="res-host")
+            | {"displayName": "pool-2"}
+        )
+    return {"resources": resources, "activeAlerts": []}
+
+
+def test_ignored_risk_code_clears_host_warning_but_keeps_raw_status() -> None:
+    payload = _risk_payload()
+    entry = _entry(
+        options={CONF_KNOWN_HOSTS: ["host-1"], CONF_IGNORED_RISK_CODES: ["unraid_no_parity"]}
+    )
+
+    health = _host_health(payload, "host-1", entry)
+
+    assert health.native_value == "ok"
+    assert health.extra_state_attributes["triggering_resources"] == []
+    assert health.extra_state_attributes["ignored_risks"] == ["pool-1 · Grund unraid_no_parity"]
+
+    coordinator = _coordinator(entry, normalize_state(payload))
+    status = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "status"),
+    )
+    assert status.native_value == "degraded"
+
+
+def test_ignored_risk_code_clears_overall_status_and_warning_counter() -> None:
+    payload = _risk_payload()
+    entry = _entry(
+        options={CONF_KNOWN_HOSTS: ["host-1"], CONF_IGNORED_RISK_CODES: ["unraid_no_parity"]}
+    )
+    coordinator = _coordinator(entry, normalize_state(payload))
+    overall = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "overall_status"),
+    )
+    warnings = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "warnings"),
+    )
+
+    assert overall.native_value == "ok"
+    assert warnings.native_value == 0
+    assert overall.extra_state_attributes["triggering_hosts"] == []
+
+
+def test_without_the_option_the_risk_still_counts_as_warning() -> None:
+    payload = _risk_payload()
+    entry = _entry(options={CONF_KNOWN_HOSTS: ["host-1"]})
+
+    health = _host_health(payload, "host-1", entry)
+
+    assert health.native_value == OVERALL_STATUS_WARNING
+    assert health.extra_state_attributes["ignored_risks"] == []
+
+
+def test_unignored_risk_reason_keeps_the_warning() -> None:
+    """Ein zweiter, nicht abgewählter Grund darf die Ressource nicht stumm schalten."""
+
+    payload = _risk_payload(risk_codes=("unraid_no_parity", "unraid_disk_missing"))
+    entry = _entry(
+        options={CONF_KNOWN_HOSTS: ["host-1"], CONF_IGNORED_RISK_CODES: ["unraid_no_parity"]}
+    )
+
+    health = _host_health(payload, "host-1", entry)
+
+    assert health.native_value == OVERALL_STATUS_WARNING
+    assert health.extra_state_attributes["triggering_resources"] == [
+        "host-1 · beeinträchtigt",
+        "Pool pool-1 · beeinträchtigt",
+    ]
+
+
+def test_second_problem_resource_keeps_the_host_warning() -> None:
+    """Der Host darf nur stumm werden, wenn kein anderes Kind auffällig ist."""
+
+    payload = _risk_payload(extra_storage_status="degraded")
+    entry = _entry(
+        options={CONF_KNOWN_HOSTS: ["host-1"], CONF_IGNORED_RISK_CODES: ["unraid_no_parity"]}
+    )
+
+    health = _host_health(payload, "host-1", entry)
+
+    assert health.native_value == OVERALL_STATUS_WARNING
+    assert health.extra_state_attributes["triggering_resources"] == [
+        "host-1 · beeinträchtigt",
+        "Pool pool-2 · beeinträchtigt",
+    ]
+
+
+def _shadow_risk_payload(*, infrastructure_status: str = "warning") -> dict:
+    """Der reale Fall: ein Array-Schatten ohne Kapazität, den Pulse hochrollt.
+
+    Solche Pools bekommen bewusst keine Entity — für die Ursachenfrage müssen
+    sie trotzdem zählen, sonst bliebe der Host ohne erkennbaren Grund degraded.
+    """
+
+    return {
+        "resources": [
+            _resource("host-1", "agent", "res-host", "degraded") | {"displayName": "Tower"},
+            {
+                "id": "res-array",
+                "type": "storage",
+                "status": "degraded",
+                "parentId": "res-host",
+                "displayName": "Tower Array",
+                "canonicalIdentity": {"primaryId": "array-1", "aliases": []},
+                "storage": {
+                    "type": "unraid-array",
+                    "risk": {
+                        "level": "warning",
+                        "reasons": [
+                            {
+                                "code": "unraid_no_parity",
+                                "severity": "warning",
+                                "summary": "Unraid array is running without parity protection",
+                            }
+                        ],
+                    },
+                },
+            },
+        ],
+        "activeAlerts": [],
+        "connectedInfrastructure": [
+            {"name": "Tower", "healthStatus": infrastructure_status, "version": "v6.3.2"}
+        ],
+    }
+
+
+def test_ignored_risk_of_a_storage_without_entity_clears_host_and_overall_status() -> None:
+    payload = _shadow_risk_payload()
+    entry = _entry(
+        options={CONF_KNOWN_HOSTS: ["host-1"], CONF_IGNORED_RISK_CODES: ["unraid_no_parity"]}
+    )
+    data = normalize_state(payload)
+    coordinator = _coordinator(entry, data)
+
+    assert "array-1" not in data.storages
+    health = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "health"),
+    )
+    overall = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "overall_status"),
+    )
+
+    assert health.native_value == "ok"
+    assert health.extra_state_attributes["ignored_risks"] == [
+        "Tower Array · Unraid array is running without parity protection"
+    ]
+    assert overall.native_value == "ok"
+    assert overall.extra_state_attributes["infrastructure_issues"] == []
+
+
+def test_offline_infrastructure_entry_survives_the_abwahl() -> None:
+    """Abgewählt wird ein Risiko, kein Ausfall."""
+
+    payload = _shadow_risk_payload(infrastructure_status="offline")
+    entry = _entry(
+        options={CONF_KNOWN_HOSTS: ["host-1"], CONF_IGNORED_RISK_CODES: ["unraid_no_parity"]}
+    )
+    coordinator = _coordinator(entry, normalize_state(payload))
+    overall = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "overall_status"),
+    )
+
+    assert overall.native_value == OVERALL_STATUS_PROBLEM
+    assert overall.extra_state_attributes["infrastructure_issues"] == ["Problem: Tower · offline"]

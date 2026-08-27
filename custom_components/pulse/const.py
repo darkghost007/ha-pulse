@@ -16,6 +16,7 @@ CONF_INCLUDE_CONTAINERS: Final = "include_docker_containers"
 CONF_CRITICAL_HOSTS_MODE: Final = "critical_hosts_mode"
 CONF_CRITICAL_HOSTS: Final = "critical_hosts"
 CONF_KNOWN_HOSTS: Final = "known_hosts"
+CONF_IGNORED_RISK_CODES: Final = "ignored_risk_codes"
 CONF_ALIAS_MAP: Final = "alias_map"
 
 CRITICAL_MODE_ALL: Final = "all"

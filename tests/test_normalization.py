@@ -343,3 +343,46 @@ def _host(primary_id: str, resource_id: str) -> dict:
         "status": "online",
         "canonicalIdentity": {"primaryId": primary_id, "aliases": []},
     }
+
+
+def test_storage_risk_reasons_are_normalized() -> None:
+    payload = {
+        "resources": [
+            _host("host-1", "res-host"),
+            {
+                "id": "res-pool",
+                "type": "storage",
+                "status": "degraded",
+                "parentId": "res-host",
+                "canonicalIdentity": {"primaryId": "pool-1", "aliases": []},
+                "disk": {"current": 50, "used": 50, "total": 100, "free": 50},
+                "storage": {
+                    "type": "unraid-array",
+                    "risk": {
+                        "level": "warning",
+                        "reasons": [
+                            {
+                                "code": "unraid_no_parity",
+                                "severity": "warning",
+                                "summary": "Unraid array is running without parity protection",
+                            },
+                            {"summary": "ohne Code"},
+                        ],
+                    },
+                },
+            },
+        ],
+        "activeAlerts": [],
+    }
+
+    reasons = normalize_state(payload).storages["pool-1"].risk_reasons
+
+    assert [reason.code for reason in reasons] == ["unraid_no_parity"]
+    assert reasons[0].severity == "warning"
+    assert reasons[0].summary == "Unraid array is running without parity protection"
+
+
+def test_resources_without_risk_have_no_reasons() -> None:
+    payload = {"resources": [_host("host-1", "res-host")], "activeAlerts": []}
+
+    assert normalize_state(payload).hosts["host-1"].risk_reasons == ()
