@@ -371,7 +371,9 @@ Options-Flow: `scan_interval`, `include_guests` (VMs/LXC als Entities, default a
 `ignored_risk_codes` (Mehrfachauswahl, seit 0.8.0): Risiko-Gründe, die Pulse an
 einem Pool meldet und die bewusst hingenommen werden. Die Auswahl kommt aus den
 Gründen, die die eigene Instanz gerade meldet (`storage.risk.reasons[].code`),
-plus den bereits abgewählten Codes.
+plus den bereits abgewählten Codes. Seit 0.9.0 zieht auch der Rohstatus
+des Hosts mit (`degraded` → `online`), solange kein anderes Kind auffällig und
+der Host erreichbar ist.
 
 ---
 

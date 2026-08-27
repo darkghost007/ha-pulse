@@ -9,7 +9,7 @@ Devices und Entities ab.
 
 ## Status
 
-Version 0.8.1 für Pulse 6.3.1. Die Integration ist read-only und nutzt
+Version 0.9.0 für Pulse 6.3.1. Die Integration ist read-only und nutzt
 den Header `X-API-Token` mit einem Token, der nur den Scope `monitoring:read`
 benötigt.
 
@@ -47,13 +47,17 @@ als Attribute für die Detailansicht bereit.
 
 Sind sämtliche Risiko-Gründe eines Pools über `ignored_risk_codes` abgewählt,
 zählt dieser Pool nicht mehr als Warnung. Ein Host, den Pulse allein wegen
-dieses Pools als `degraded` führt, gilt dann ebenfalls als `ok` — aber nur,
-solange kein anderes Kind auffällig ist. Pulse nennt am Agenten selbst keinen
-Grund; die Abwahl gilt deshalb bewusst nicht, sobald ein weiterer Pool, eine
-Platte oder ein Alarm dazukommt. Der rohe Statussensor zeigt weiterhin, was
-Pulse meldet, und das Attribut `ignored_risks` benennt, was abgewählt wurde.
-Der Spiegeleintrag aus `connectedInfrastructure` wird für denselben Host
-mitgefiltert; ein echter Ausfall dort bleibt unabhängig davon stehen.
+dieses Pools als `degraded` führt, gilt dann ebenfalls als `ok` — und sein
+Statussensor meldet `online` statt `degraded`. Beides aber nur, solange kein
+anderes Kind auffällig ist: Pulse nennt am Agenten selbst keinen Grund, die
+Abwahl gilt deshalb bewusst nicht, sobald ein weiterer Pool, eine Platte oder
+ein Alarm dazukommt. Ein Host, der nicht erreichbar ist, wird nie
+beschönigt — abgewählt werden Risiken, keine Ausfälle.
+
+Das Attribut `ignored_risks` an Gerätestatus und Statussensor benennt, was
+abgewählt wurde. Der Spiegeleintrag aus `connectedInfrastructure` wird für
+denselben Host mitgefiltert; ein echter Ausfall dort bleibt unabhängig davon
+stehen. Was Pulse selbst anzeigt, bleibt unverändert.
 
 Alarme werden über alle bekannten Pulse-Kennungen der Ressource aufgelöst,
 einschließlich Docker-IDs im Format `docker:<agent>/<container>`. Die

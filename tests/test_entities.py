@@ -1469,7 +1469,7 @@ def _risk_payload(
     return {"resources": resources, "activeAlerts": []}
 
 
-def test_ignored_risk_code_clears_host_warning_but_keeps_raw_status() -> None:
+def test_ignored_risk_code_clears_host_status_and_health() -> None:
     payload = _risk_payload()
     entry = _entry(
         options={CONF_KNOWN_HOSTS: ["host-1"], CONF_IGNORED_RISK_CODES: ["unraid_no_parity"]}
@@ -1487,7 +1487,10 @@ def test_ignored_risk_code_clears_host_warning_but_keeps_raw_status() -> None:
         "host-1",
         next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "status"),
     )
-    assert status.native_value == "degraded"
+    assert status.native_value == "online"
+    assert status.extra_state_attributes == {
+        "ignored_risks": ["pool-1 · Grund unraid_no_parity"]
+    }
 
 
 def test_ignored_risk_code_clears_overall_status_and_warning_counter() -> None:
@@ -1635,3 +1638,50 @@ def test_offline_infrastructure_entry_survives_the_abwahl() -> None:
 
     assert overall.native_value == OVERALL_STATUS_PROBLEM
     assert overall.extra_state_attributes["infrastructure_issues"] == ["Problem: Tower · offline"]
+
+
+def test_status_stays_degraded_without_the_option() -> None:
+    """Ohne Abwahl bleibt der Statussensor bei dem, was Pulse meldet."""
+
+    entry = _entry(options={CONF_KNOWN_HOSTS: ["host-1"]})
+    coordinator = _coordinator(entry, normalize_state(_risk_payload()))
+    status = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "status"),
+    )
+
+    assert status.native_value == "degraded"
+    assert status.extra_state_attributes is None
+
+
+def test_status_stays_degraded_when_another_resource_is_affected() -> None:
+    """Ein zweites auffälliges Kind darf den Status nicht schönfärben."""
+
+    entry = _entry(
+        options={CONF_KNOWN_HOSTS: ["host-1"], CONF_IGNORED_RISK_CODES: ["unraid_no_parity"]}
+    )
+    coordinator = _coordinator(entry, normalize_state(_risk_payload(extra_storage_status="degraded")))
+    status = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "status"),
+    )
+
+    assert status.native_value == "degraded"
+
+
+def test_offline_host_is_never_reported_as_online() -> None:
+    """Die Abwahl gilt für Risiken, nicht für Erreichbarkeit."""
+
+    entry = _entry(
+        options={CONF_KNOWN_HOSTS: ["host-1"], CONF_IGNORED_RISK_CODES: ["unraid_no_parity"]}
+    )
+    coordinator = _coordinator(entry, normalize_state(_risk_payload(host_status="offline")))
+    status = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "status"),
+    )
+
+    assert status.native_value == "offline"

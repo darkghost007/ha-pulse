@@ -53,6 +53,8 @@ SummaryValueFn = Callable[[PulseData], Any]
 OVERALL_STATUS_OK = "ok"
 OVERALL_STATUS_WARNING = "warning"
 OVERALL_STATUS_PROBLEM = "problem"
+#: Rohstatus, den ein Host bekommt, dessen Risiken alle abgewählt sind.
+HEALTHY_STATUS = "online"
 ALERT_ATTRIBUTE_LIMIT = 8
 OPTIONAL_HOST_VALUE_KEYS = {
     "network_rx_rate",
@@ -628,6 +630,14 @@ class PulseHostSensor(PulseHostEntity, PulseResourceSensor):
             if data is None or "resources" in data.stale:
                 return None
             return _host_disk_life_remaining(data, self.current_resource_id)
+        if self.entity_description.key == "status":
+            data = self.coordinator.data
+            if data is not None and _host_degradation_ignored(
+                data, self.current_resource_id, _ignored_risk_codes(self._entry)
+            ):
+                # Der Host ist ausschließlich wegen abgewählter Risiken
+                # beeinträchtigt — dann soll auch der Rohstatus ruhig sein.
+                return HEALTHY_STATUS
         if self.entity_description.key in {
             "containers_running",
             "containers_stopped",
@@ -670,6 +680,11 @@ class PulseHostSensor(PulseHostEntity, PulseResourceSensor):
             return {"disks": _host_disk_problem_details(data, self.current_resource_id)}
         if self.entity_description.key == "disk_life_remaining":
             return {"disks": _host_disk_life_details(data, self.current_resource_id)}
+        if self.entity_description.key == "status":
+            ignored = _ignored_risk_details(data, self.current_resource_id, _ignored_risk_codes(self._entry))
+            # Nur wenn etwas abgewählt wurde: sonst hätte jeder Host ein leeres
+            # Attribut, das nichts erklärt.
+            return {"ignored_risks": ignored} if ignored else None
         return None
 
 
@@ -905,6 +920,10 @@ def _host_degradation_ignored(data: PulseData, host_id: str, ignored: frozenset[
     """
 
     if not ignored:
+        return False
+    host = data.hosts.get(host_id)
+    if host is None or not host.is_host_online:
+        # Ein Ausfall ist kein abwählbares Risiko.
         return False
     degraded = _degraded_host_storages(data, host_id)
     if not degraded or any(not _risk_ignored(storage, ignored) for storage in degraded):
