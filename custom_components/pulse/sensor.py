@@ -820,16 +820,32 @@ def _infrastructure_issues(data: PulseData, entry: ConfigEntry) -> list[dict[str
     ignored = _ignored_risk_codes(entry)
     if not ignored:
         return data.infrastructure_issues
-    muted = {
-        host.name
-        for host_id, host in data.hosts.items()
-        if not host.is_host_healthy and _host_degradation_ignored(data, host_id, ignored)
-    }
+    muted_ids: set[str] = set()
+    muted_names: set[str] = set()
+    for host_id, host in data.hosts.items():
+        if host.is_host_healthy or not _host_degradation_ignored(data, host_id, ignored):
+            continue
+        muted_ids.update(host.identity_keys)
+        muted_names.add(host.name)
     return [
         issue
         for issue in data.infrastructure_issues
-        if issue["problem"] or issue.get("name") not in muted
+        if issue["problem"] or not _issue_muted(issue, muted_ids, muted_names)
     ]
+
+
+def _issue_muted(issue: dict[str, Any], muted_ids: set[str], muted_names: set[str]) -> bool:
+    """Zuordnung über die Agent-Kennung, nur ersatzweise über den Namen.
+
+    Namen sind nicht eindeutig: Zwei Hosts können denselben Anzeigenamen
+    tragen, und dann würde die Abwahl beim einen die Warnung des anderen
+    verschlucken. Ältere Pulse-Versionen liefern die Kennung nicht mit.
+    """
+
+    agent_id = issue.get("agent_id")
+    if agent_id:
+        return agent_id in muted_ids
+    return issue.get("name") in muted_names
 
 
 def _infrastructure_issue_labels(data: PulseData, entry: ConfigEntry) -> list[str]:
@@ -913,10 +929,16 @@ def _degraded_host_storages(data: PulseData, host_id: str) -> list[PulseResource
 def _host_degradation_ignored(data: PulseData, host_id: str, ignored: frozenset[str]) -> bool:
     """Ist der Host nur wegen abgewählter Risiken beeinträchtigt?
 
-    Pulse rollt den schlechtesten Kindstatus auf den Agenten hoch, nennt am
-    Agenten selbst aber keinen Grund. Die Abwahl greift deshalb nur, wenn
-    mindestens ein abgewähltes Kind existiert und kein anderes Kind auffällig
-    ist — sonst würde ein echtes Problem mit stumm geschaltet.
+    Maßgeblich ist `agent.storageRisk`: Pulse setzt den Agentenstatus als
+    `storageStatus(host.Status, agent.StorageRisk)`, und `host.Status` kennt für
+    Agenten nur `online`/`offline` (Pulse 6.3.x,
+    `internal/unifiedresources/adapters.go`). `degraded` kann also ausschließlich
+    aus diesem Risiko stammen — Container, Gäste und Platten fließen dort nicht
+    ein. Sind alle seine Gründe abgewählt, wäre der Host online.
+
+    Die beiden Zusatzprüfungen sind bewusst konservativ: Sollte Pulse den Status
+    künftig aus einer weiteren Quelle speisen, bleibt die Warnung stehen, statt
+    still zu verschwinden.
     """
 
     if not ignored:
@@ -925,8 +947,9 @@ def _host_degradation_ignored(data: PulseData, host_id: str, ignored: frozenset[
     if host is None or not host.is_host_online:
         # Ein Ausfall ist kein abwählbares Risiko.
         return False
-    degraded = _degraded_host_storages(data, host_id)
-    if not degraded or any(not _risk_ignored(storage, ignored) for storage in degraded):
+    if not _risk_ignored(host, ignored):
+        return False
+    if any(not _risk_ignored(storage, ignored) for storage in _degraded_host_storages(data, host_id)):
         return False
     return all(_disk_problem_severity(disk) is None for disk in _host_disks(data, host_id))
 
@@ -934,12 +957,20 @@ def _host_degradation_ignored(data: PulseData, host_id: str, ignored: frozenset[
 def _ignored_risk_details(data: PulseData, host_id: str, ignored: frozenset[str]) -> list[str]:
     """Was wegen der Abwahl nicht als Warnung gilt — sonst wäre die Stille blind."""
 
-    return [
+    details = [
         f"{storage.name} · {reason.summary or reason.code}"
         for storage in _degraded_host_storages(data, host_id)
         if _risk_ignored(storage, ignored)
         for reason in storage.risk_reasons
     ]
+    if details:
+        return details
+    # Risiken ohne eigene Pool-Ressource — etwa ein RAID-Verbund — stehen nur
+    # am Agenten. Ohne diesen Zweig bliebe die Abwahl unerklärt.
+    host = data.hosts.get(host_id)
+    if host is None or not _risk_ignored(host, ignored):
+        return []
+    return [f"{host.name} · {reason.summary or reason.code}" for reason in host.risk_reasons]
 
 
 def _warning_hosts(data: PulseData, entry: ConfigEntry) -> list[PulseResource]:

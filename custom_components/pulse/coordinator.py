@@ -472,14 +472,22 @@ def _resource_from_raw(
 def _risk_reasons(raw: dict[str, Any]) -> tuple[PulseRiskReason, ...]:
     """Risiko-Gründe einer Ressource.
 
-    Pulse führt den Block sowohl unter `storage` als auch gespiegelt unter
-    `platformData`; ein Grund ohne `code` ist nicht abwählbar und entfällt.
+    Pulse führt den Block unter `storage`, gespiegelt unter `platformData` und
+    am Agenten als `agent.storageRisk`; ein Grund ohne `code` ist nicht
+    abwählbar und entfällt.
     """
 
-    for container in (raw.get("storage"), raw.get("platformData")):
+    for container, key in (
+        (raw.get("storage"), "risk"),
+        (raw.get("platformData"), "risk"),
+        # Am Agenten fasst Pulse alle Speicherbefunde des Hosts zusammen —
+        # auch RAID-Verbünde, die keine eigene Ressource bekommen. Genau dieser
+        # Block entscheidet dort über `degraded`.
+        (raw.get("agent"), "storageRisk"),
+    ):
         if not isinstance(container, dict):
             continue
-        risk = container.get("risk")
+        risk = container.get(key)
         if not isinstance(risk, dict):
             continue
         reasons = risk.get("reasons")
@@ -605,6 +613,8 @@ def _infrastructure_issues(payload: dict[str, Any]) -> list[dict[str, Any]]:
             output.append(
                 {
                     "name": _string(item.get("name")) or "unknown",
+                    # Der Name ist nicht eindeutig — die Agent-Kennung schon.
+                    "agent_id": _string(item.get("scopeAgentId")),
                     "status": status,
                     "last_seen": item.get("lastSeen"),
                     "version": _string(item.get("version")),
@@ -620,6 +630,7 @@ def _infrastructure_issues(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {
             "name": str(name),
+            "agent_id": None,
             "status": "offline",
             "last_seen": None,
             "version": None,
@@ -647,6 +658,18 @@ def _resource_identity_keys(
             keys.append(value)
     elif isinstance(metrics_target, str):
         keys.append(metrics_target)
+
+    agent = raw.get("agent")
+    if isinstance(agent, dict):
+        for field in ("agentId", "machineId"):
+            value = _string(agent.get(field))
+            if value:
+                keys.append(value)
+    identity = raw.get("identity")
+    if isinstance(identity, dict):
+        value = _string(identity.get("machineId"))
+        if value:
+            keys.append(value)
 
     docker = raw.get("docker")
     if isinstance(docker, dict):

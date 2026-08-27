@@ -1449,24 +1449,19 @@ def _risk_payload(
     Pulse rollt den schlechtesten Kindstatus auf den Agenten hoch, nennt am
     Agenten aber keinen Grund — genau diese Konstellation bildet der Payload ab.
     """
+    reasons = [
+        {"code": code, "severity": "warning", "summary": f"Grund {code}"}
+        for code in risk_codes
+    ]
     resources = [
-        _resource("host-1", "agent", "res-host", host_status),
+        _resource("host-1", "agent", "res-host", host_status)
+        | {"agent": {"storageRisk": {"level": "warning", "reasons": reasons}}},
         _resource("pool-1", "storage", "res-pool", "degraded", parent_id="res-host")
         | {
             "displayName": "pool-1",
             "storage": {
                 "type": "unraid-array",
-                "risk": {
-                    "level": "warning",
-                    "reasons": [
-                        {
-                            "code": code,
-                            "severity": "warning",
-                            "summary": f"Grund {code}",
-                        }
-                        for code in risk_codes
-                    ],
-                },
+                "risk": {"level": "warning", "reasons": reasons},
             },
         },
     ]
@@ -1575,7 +1570,22 @@ def _shadow_risk_payload(*, infrastructure_status: str = "warning") -> dict:
 
     return {
         "resources": [
-            _resource("host-1", "agent", "res-host", "degraded") | {"displayName": "Tower"},
+            _resource("host-1", "agent", "res-host", "degraded")
+            | {
+                "displayName": "Tower",
+                "agent": {
+                    "storageRisk": {
+                        "level": "warning",
+                        "reasons": [
+                            {
+                                "code": "unraid_no_parity",
+                                "severity": "warning",
+                                "summary": "Unraid array is running without parity protection",
+                            }
+                        ],
+                    }
+                },
+            },
             {
                 "id": "res-array",
                 "type": "storage",
@@ -1694,3 +1704,118 @@ def test_offline_host_is_never_reported_as_online() -> None:
     )
 
     assert status.native_value == "offline"
+
+
+def test_host_risk_without_a_pool_resource_blocks_the_abwahl() -> None:
+    """Ein Host-RAID-Risiko hat keine eigene Pool-Ressource.
+
+    Pulse fasst in `agent.storageRisk` alle Speicherbefunde des Hosts zusammen,
+    auch mdadm-RAID ohne eigene Ressource. Steht dort ein nicht abgewählter
+    Grund, darf die Abwahl des Array-Risikos ihn nicht mit stumm schalten.
+    """
+
+    payload = {
+        "resources": [
+            _resource("host-1", "agent", "res-host", "degraded")
+            | {
+                "agent": {
+                    "storageRisk": {
+                        "level": "warning",
+                        "reasons": [
+                            {"code": "unraid_no_parity", "severity": "warning", "summary": "ohne Parität"},
+                            {"code": "raid_degraded", "severity": "warning", "summary": "RAID beeinträchtigt"},
+                        ],
+                    }
+                }
+            },
+        ],
+        "activeAlerts": [],
+    }
+    entry = _entry(
+        options={CONF_KNOWN_HOSTS: ["host-1"], CONF_IGNORED_RISK_CODES: ["unraid_no_parity"]}
+    )
+    coordinator = _coordinator(entry, normalize_state(payload))
+    health = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "health"),
+    )
+    status = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "status"),
+    )
+
+    assert health.native_value == OVERALL_STATUS_WARNING
+    assert status.native_value == "degraded"
+
+
+def test_degraded_host_without_any_risk_reason_is_never_muted() -> None:
+    """Ohne erkennbaren Grund am Agenten bleibt es bei dem, was Pulse meldet."""
+
+    payload = {
+        "resources": [_resource("host-1", "agent", "res-host", "degraded")],
+        "activeAlerts": [],
+    }
+    entry = _entry(
+        options={CONF_KNOWN_HOSTS: ["host-1"], CONF_IGNORED_RISK_CODES: ["unraid_no_parity"]}
+    )
+    coordinator = _coordinator(entry, normalize_state(payload))
+    status = PulseHostSensor(
+        coordinator,
+        "host-1",
+        next(description for description in sensor.HOST_SENSOR_DESCRIPTIONS if description.key == "status"),
+    )
+
+    assert status.native_value == "degraded"
+
+
+def test_infrastructure_entries_are_matched_by_agent_id_not_by_name() -> None:
+    """Zwei Hosts dürfen denselben Anzeigenamen tragen.
+
+    Der Spiegeleintrag wird über `scopeAgentId` zugeordnet; sonst würde die
+    Abwahl beim einen Host die Warnung des anderen mit verschlucken.
+    """
+
+    payload = {
+        "resources": [
+            _resource("host-1", "agent", "res-host-1", "degraded")
+            | {
+                "displayName": "Tower",
+                "identity": {"machineId": "machine-1"},
+                "agent": {
+                    "agentId": "machine-1",
+                    "storageRisk": {
+                        "level": "warning",
+                        "reasons": [{"code": "unraid_no_parity", "severity": "warning", "summary": "ohne Parität"}],
+                    },
+                },
+            },
+            _resource("host-2", "agent", "res-host-2", "degraded")
+            | {
+                "displayName": "Tower",
+                "identity": {"machineId": "machine-2"},
+                "agent": {"agentId": "machine-2"},
+            },
+        ],
+        "activeAlerts": [],
+        "connectedInfrastructure": [
+            {"name": "Tower", "scopeAgentId": "machine-1", "healthStatus": "warning"},
+            {"name": "Tower", "scopeAgentId": "machine-2", "healthStatus": "warning"},
+        ],
+    }
+    entry = _entry(
+        options={
+            CONF_KNOWN_HOSTS: ["host-1", "host-2"],
+            CONF_IGNORED_RISK_CODES: ["unraid_no_parity"],
+        }
+    )
+    coordinator = _coordinator(entry, normalize_state(payload))
+    overall = sensor.PulseSummarySensor(
+        coordinator,
+        next(description for description in sensor.SUMMARY_SENSOR_DESCRIPTIONS if description.key == "overall_status"),
+    )
+
+    # host-2 ist unverändert auffällig — sein Spiegeleintrag muss stehen bleiben.
+    assert overall.native_value == OVERALL_STATUS_WARNING
+    assert overall.extra_state_attributes["infrastructure_issues"] == ["Tower · Warnung"]
