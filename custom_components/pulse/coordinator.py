@@ -235,6 +235,17 @@ class PulseDataUpdateCoordinator(DataUpdateCoordinator[PulseData]):
         """Persistiert bekannte Hosts und Alias-Zuordnungen im Config-Entry."""
 
         alias_map = dict(self.config_entry.options.get(CONF_ALIAS_MAP, {}))
+        current_ids = set(data.resources)
+        for canonical_id in current_ids:
+            previous_target = alias_map.pop(canonical_id, None)
+            if previous_target and previous_target != canonical_id and previous_target not in current_ids:
+                # Pulse kann nach einer Neuanmeldung eine fruehere primaryId
+                # wieder zur aktuellen Kennung machen. Eine persistierte
+                # Gegenrichtung (aktuell -> alt) wuerde dann jede Entity auf
+                # eine nicht mehr vorhandene Ressource umbiegen. Die alte
+                # Kennung bleibt als Alias erhalten, aber in der richtigen
+                # Richtung zur aktuell gelieferten primaryId.
+                alias_map[previous_target] = canonical_id
         for resource in data.resources.values():
             for alias in resource.aliases:
                 if alias != resource.canonical_id:

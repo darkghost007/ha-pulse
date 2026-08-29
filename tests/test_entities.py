@@ -1133,6 +1133,29 @@ def test_coordinator_persist_removes_alias_replaced_known_host() -> None:
     assert hass.config_entries.updated_options[CONF_ALIAS_MAP]["old-id"] == "new-id"
 
 
+def test_coordinator_persist_reverses_stale_mapping_when_primary_id_returns() -> None:
+    """Eine wieder aktuelle primaryId darf nicht auf ihre alte Kennung zeigen."""
+
+    data = normalize_state(_host_payload("current-id", aliases=["friendly-name"]))
+    entry = _entry(
+        options={
+            CONF_KNOWN_HOSTS: ["current-id"],
+            CONF_ALIAS_MAP: {"current-id": "old-id", "friendly-name": "old-id"},
+        }
+    )
+    hass = SimpleNamespace(config_entries=FakeConfigEntries())
+    coordinator = object.__new__(PulseDataUpdateCoordinator)
+    coordinator.config_entry = entry
+    coordinator._hass = hass
+
+    coordinator._async_persist_identity_data(data)
+
+    alias_map = hass.config_entries.updated_options[CONF_ALIAS_MAP]
+    assert "current-id" not in alias_map
+    assert alias_map["old-id"] == "current-id"
+    assert alias_map["friendly-name"] == "current-id"
+
+
 @pytest.mark.asyncio
 async def test_coordinator_refresh_uses_one_state_request(fixture_state: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     coordinator = object.__new__(PulseDataUpdateCoordinator)
